@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Enables Chrome DevTools for this panel while developing.
+  With Premiere running and the panel open, browse to http://localhost:8088
+  in Chrome to inspect the UI, see console.log output, and debug main.js.
+-->
+<ExtensionList>
+  <Extension Id="com.quietcut.panel.main">
+    <HostList>
+      <Host Name="PPRO" Port="8088" />
+    </HostList>
+  </Extension>
+</ExtensionList>

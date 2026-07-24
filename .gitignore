@@ -1,0 +1,27 @@
+# ── Bundled runtimes: downloaded/installed by setup, platform-specific, huge (~13 GB).
+#    NOT source — each machine fetches its own (ffmpeg, Whisper, Ollama + models). ──
+bin/
+
+# ── Premiere & test artifacts ──
+Adobe Premiere Pro Auto-Save/
+TEST.*
+*.prproj
+*.prproj.*
+*.prin
+*.prlock
+
+# ── Claude Code local config (machine-specific overrides) ──
+.claude/settings.local.json
+
+# ── Node ──
+node_modules/
+npm-debug.log*
+
+# ── OS / editor cruft ──
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
+*.log
+*.tmp
+*.swp

@@ -1,0 +1,1017 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>QuietCut</title>
+  <style>
+    :root {
+      --bg: #232323;
+      --panel: #2b2b2b;
+      --panel-2: #323232;
+      --border: #1b1b1b;
+      --line: #3a3a3a;
+      --text: #e6e6e6;
+      --text-dim: #9a9a9a;
+      --accent: #4b8bff;
+      --accent-hover: #5f9bff;
+      --ok: #4caf7d;
+      --err: #e2685f;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; height: 100%;
+      background: var(--bg); color: var(--text);
+      font-family: "Segoe UI", -apple-system, system-ui, sans-serif;
+      font-size: 13px;
+      -webkit-user-select: none; user-select: none;
+    }
+    .app { display: flex; flex-direction: column; height: 100%; padding: 14px; gap: 12px; }
+
+    header .title { font-size: 16px; font-weight: 600; letter-spacing: 0.3px; }
+    header .subtitle { color: var(--text-dim); font-size: 11px; margin-top: 2px; }
+
+    /* Editing bar — shows the active sequence + manual Duplicate */
+    .editbar {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 6px; padding: 7px 10px;
+    }
+    .editbar .label { color: var(--text-dim); font-size: 11px; white-space: nowrap; }
+    .editbar .seqname {
+      flex: 1; font-weight: 600; font-size: 12px; cursor: pointer;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .editbar .seqname:hover { color: var(--accent); }
+    .editbar button { padding: 6px 10px; font-size: 12px; }
+    /* When you're on what looks like an original (no "QuietCut"/"Vox Pop" in the
+       name), gently suggest making a safety copy. */
+    .editbar button.suggest { border-color: var(--accent); color: var(--accent); }
+    .editbar .seqname .tag { font-size: 10px; color: var(--ok); margin-left: 6px; font-weight: 600; }
+
+    /* Tools — a wrapping pill bar so every tool is visible at once (8+ tools on
+       a narrow panel), no horizontal scrolling. */
+    .tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+    .tab {
+      flex: 0 0 auto; padding: 6px 12px; cursor: pointer; white-space: nowrap;
+      font-size: 12px; font-weight: 600; color: var(--text-dim);
+      background: var(--panel-2); border: 1px solid var(--border); border-radius: 14px;
+      transition: background 0.1s ease, color 0.1s ease;
+    }
+    .tab:hover { color: var(--text); border-color: var(--line); }
+    .tab.active { color: #fff; background: var(--accent); border-color: var(--accent); }
+
+    button {
+      appearance: none; border: 1px solid var(--border); border-radius: 6px;
+      cursor: pointer; font-size: 13px; font-family: inherit;
+    }
+    button.primary {
+      background: var(--accent); color: #fff; font-weight: 600; padding: 11px 14px; width: 100%;
+      transition: background 0.12s ease;
+    }
+    button.primary:hover { background: var(--accent-hover); }
+    button.primary:active { transform: translateY(1px); }
+    button:disabled { opacity: 0.5; cursor: default; }
+    button.secondary { background: var(--panel-2); color: var(--text); padding: 9px 12px; }
+    button.secondary:hover { background: #3c3c3c; }
+    .btn-row { display: flex; gap: 8px; }
+    .btn-row button { flex: 1; }
+
+    .status { font-size: 12px; color: var(--text-dim); min-height: 16px; }
+    .status.ok { color: var(--ok); }
+    .status.err { color: var(--err); }
+    /* Animated dots so long operations don't look frozen. */
+    .status.busy::after { content: ""; animation: qc-dots 1.2s steps(1, end) infinite; }
+    @keyframes qc-dots {
+      0%   { content: ""; }
+      25%  { content: " ."; }
+      50%  { content: " .."; }
+      75%  { content: " ..."; }
+      100% { content: ""; }
+    }
+
+    /* Settings */
+    .settings-toggle {
+      display: flex; align-items: center; justify-content: space-between;
+      color: var(--text-dim); font-size: 12px; cursor: pointer; padding: 4px 0;
+    }
+    .settings-toggle .chev { transition: transform 0.15s ease; display: inline-block; }
+    .settings.open .chev { transform: rotate(90deg); }
+    .settings-body { display: none; padding-top: 8px; }
+    .settings.open .settings-body { display: block; }
+    .field { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+    .field label { color: var(--text-dim); }
+    .field input, .field select {
+      width: 130px; background: var(--panel-2); color: var(--text);
+      border: 1px solid var(--line); border-radius: 4px; padding: 5px 7px;
+      font-family: inherit; font-size: 12px;
+    }
+    .field input[type="number"] { width: 80px; text-align: right; }
+    .field-col { display: block; margin-bottom: 8px; }
+    .field-col label { color: var(--text-dim); display: block; margin-bottom: 4px; }
+    .field-col input {
+      width: 100%; background: var(--panel-2); color: var(--text);
+      border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px;
+      font-family: inherit; font-size: 12px;
+    }
+    textarea {
+      width: 100%; min-height: 56px; resize: vertical;
+      background: var(--panel-2); color: var(--text);
+      border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px;
+      font-family: inherit; font-size: 12px;
+    }
+    .check { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: var(--text); }
+    .badge.filler { color: #d6a44a; }
+    .badge.repeat { color: #7fb0ff; }
+    .badge.silence { color: #9a9a9a; }
+    .badge.cleanup { color: #b07fff; }
+    .badge.section { color: #59c2a0; text-transform: uppercase; letter-spacing: .04em; }
+    .badge.speaker { color: #7fb0ff; font-weight: 600; }
+    /* Quick Clean source filter chips */
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+    .chip {
+      font-size: 10px; padding: 2px 8px; border-radius: 10px; cursor: pointer;
+      border: 1px solid var(--line); color: var(--text-dim); background: var(--panel-2);
+    }
+    .chip.on { color: var(--text); border-color: var(--accent); }
+    .hitline { cursor: pointer; line-height: 1.4; }
+    .hitline .ctx { color: var(--text-dim); opacity: 0.55; }
+    .hitline .hit { font-weight: 600; color: var(--text); }
+    .hitline:hover .hit { color: var(--accent); }
+    .field .hint, .field-col .hint { display: block; font-size: 10px; color: #6f6f6f; margin-top: 1px; }
+    .qc-context { min-height: 48px; }
+    .reset-link { color: var(--accent); font-size: 11px; cursor: pointer; }
+
+    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 12px; }
+
+    /* Review list */
+    .review { display: flex; flex-direction: column; }
+    .review-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+    .review-head .summary { font-size: 12px; color: var(--text-dim); }
+    .selall { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-dim); cursor: pointer; }
+    /* Size to content (up to max-height, then scroll). NOT flex:1 — in a
+       scrolling tab panel flex:1 collapses the list to ~0 and hides the rows. */
+    .cut-list { overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; max-height: 240px; min-height: 60px; }
+    .cut-row {
+      display: grid; grid-template-columns: 22px 1fr auto; align-items: center;
+      gap: 8px; padding: 7px 10px; border-bottom: 1px solid var(--border);
+    }
+    .cut-row:last-child { border-bottom: none; }
+    .cut-row:hover { background: var(--panel-2); }
+    .cut-row.off { opacity: 0.4; }
+    .cut-row .range { font-variant-numeric: tabular-nums; }
+    .cut-row .meta { color: var(--text-dim); font-size: 11px; font-variant-numeric: tabular-nums; }
+    .cut-row .badge { color: var(--accent); font-size: 10px; margin-left: 6px; }
+    /* First few spoken words under a suggested zoom, so you know what it punches into */
+    .cut-row .qline { color: var(--text-dim); font-size: 11px; margin-top: 2px; opacity: 0.85; }
+    /* Speaker tab: one editable person card with a LinkedIn lookup */
+    .person {
+      border: 1px solid var(--border); border-radius: 6px; padding: 10px;
+      margin-bottom: 8px; background: var(--panel); display: flex; flex-direction: column; gap: 6px;
+    }
+    .person label { font-size: 10px; color: var(--text-dim); display: block; margin-bottom: 2px; }
+    .person input {
+      width: 100%; background: var(--panel-2); color: var(--text);
+      border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px;
+      font-family: inherit; font-size: 12px;
+    }
+    .person .two { display: flex; gap: 6px; }
+    .person .two > div { flex: 1; }
+    .person button { margin-top: 2px; }
+    input[type="checkbox"] { accent-color: var(--accent); width: 14px; height: 14px; }
+
+    /* Manual claude.ai bridge overlay */
+    .overlay {
+      position: fixed; inset: 0; z-index: 50;
+      background: var(--bg); padding: 14px;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .overlay h3 { margin: 0; font-size: 14px; }
+    .overlay .step { font-size: 11px; color: var(--text-dim); }
+    .overlay textarea { flex: 1; min-height: 60px; }
+    .overlay .prompt-area { flex: 1.2; }
+    .overlay .reply-area { flex: 1; }
+
+    .tab-panel { display: none; flex-direction: column; gap: 12px; flex: 1; min-height: 0; }
+    /* Scroll a tall tab (e.g. Zoom + Camera Pull) instead of overflowing onto
+       the status/footer below it. */
+    .tab-panel.active { display: flex; overflow-y: auto; overflow-x: hidden; }
+    .hidden { display: none !important; }
+    footer { color: var(--text-dim); font-size: 10px; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div class="title">QuietCut</div>
+      <div class="subtitle">Smart auto-editor for talking-head footage</div>
+    </header>
+
+    <div class="editbar">
+      <span class="label">Editing:</span>
+      <span class="seqname" id="activeSeq" title="Click to refresh">—</span>
+      <button class="secondary" id="dupBtn">Duplicate</button>
+    </div>
+
+    <div class="tabs">
+      <div class="tab active" data-tab="silence">Silence</div>
+      <div class="tab" data-tab="fillers">Fillers</div>
+      <div class="tab" data-tab="cleanup">Cleanup</div>
+      <div class="tab" data-tab="quick">Quick Clean</div>
+      <div class="tab" data-tab="zoom">Zoom</div>
+      <div class="tab" data-tab="captions">Captions</div>
+      <div class="tab" data-tab="highlights">Highlights</div>
+      <div class="tab" data-tab="voxpop">Vox Pop</div>
+      <div class="tab" data-tab="story">Story</div>
+      <div class="tab" data-tab="speaker">Speaker</div>
+    </div>
+
+    <!-- ============ SILENCE TAB ============ -->
+    <div class="tab-panel active" id="silencePanel">
+      <button class="primary" id="scanBtn">Scan for Silences</button>
+
+      <div class="settings" id="settings">
+        <div class="settings-toggle" id="settingsToggle">
+          <span><span class="chev">▸</span> Settings</span>
+          <span class="reset-link" id="resetBtn">Reset defaults</span>
+        </div>
+        <div class="settings-body">
+          <div class="field">
+            <div><label for="thrInput">Noise threshold</label>
+              <span class="hint">Quieter than this = silence (dB)</span></div>
+            <input type="number" id="thrInput" step="1" />
+          </div>
+          <div class="field">
+            <div><label for="minSilInput">Min silence length</label>
+              <span class="hint">Ignore pauses shorter than this (ms)</span></div>
+            <input type="number" id="minSilInput" step="50" min="0" />
+          </div>
+          <div class="field">
+            <div><label for="padInput">Padding</label>
+              <span class="hint">Breath left around speech (ms)</span></div>
+            <input type="number" id="padInput" step="10" min="0" />
+          </div>
+        </div>
+      </div>
+
+      <div class="card review hidden" id="reviewCard">
+        <div class="review-head">
+          <span class="summary" id="summary">—</span>
+          <label class="selall"><input type="checkbox" id="selAll" checked /> All</label>
+        </div>
+        <div class="cut-list" id="cutList"></div>
+        <div class="btn-row" style="margin-top: 10px;">
+          <button class="secondary" id="cancelBtn">Cancel</button>
+          <button class="primary" id="applyBtn" style="flex: 2;">Apply cuts</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ ZOOM TAB ============ -->
+    <div class="tab-panel" id="zoomPanel">
+      <button class="primary" id="zScanBtn">Find Zoom Moments</button>
+
+      <div class="settings open" id="zSettings">
+        <div class="settings-toggle" id="zSettingsToggle">
+          <span><span class="chev">▸</span> Settings</span>
+          <span class="reset-link" id="zResetBtn">Reset defaults</span>
+        </div>
+        <div class="settings-body">
+          <div class="field">
+            <div><label for="zDetect">Detect by</label>
+              <span class="hint">Loudness = fast · AI = reads what's said (best for interviews)</span></div>
+            <select id="zDetect">
+              <option value="loudness">Loudness</option>
+              <option value="ai">AI content</option>
+            </select>
+          </div>
+          <div class="field">
+            <div><label for="zBrain">AI brain</label>
+              <span class="hint">Used when Detect by = AI content</span></div>
+            <select id="zBrain" class="qc-brain">
+              <option value="local">Local (qwen)</option>
+              <option value="manual">Claude (manual · claude.ai)</option>
+              <option value="claude-api">Claude (API key)</option>
+            </select>
+          </div>
+          <div class="field-col qc-keyfield hidden">
+            <label for="zKey">Claude API key (stored locally on this machine)</label>
+            <input type="password" id="zKey" class="qc-key" placeholder="sk-ant-..." />
+          </div>
+          <div class="field-col qc-contextfield">
+            <label for="zCtx">Context for the AI <span class="hint">optional — brand, topic, who's speaking (shared across all AI tabs)</span></label>
+            <textarea id="zCtx" class="qc-context" placeholder="e.g. This is for Acme's launch — punch in when she names the product or a key number."></textarea>
+          </div>
+          <div class="field">
+            <div><label for="zAmount">Zoom amount</label>
+              <span class="hint">How far to punch in</span></div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <input type="range" id="zAmount" min="102" max="140" step="1" style="width:90px;" />
+              <span class="meta" id="zAmountVal" style="width:34px; text-align:right;">110%</span>
+            </div>
+          </div>
+          <div class="field">
+            <div><label for="zDuration">Max length</label>
+              <span class="hint" id="zDurationHint">Target hold; sentence may finish past it</span></div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <input type="range" id="zDuration" min="3" max="20" step="1" style="width:90px;" />
+              <span class="meta" id="zDurationVal" style="width:34px; text-align:right;">10s</span>
+            </div>
+          </div>
+          <label class="check"><input type="checkbox" id="zHoldPause" checked />
+            Let the sentence finish (zoom out at the natural pause, even a little past Max)</label>
+          <div class="field">
+            <div><label for="zSensitivity">How many moments</label>
+              <span class="hint">Higher = zoom more often</span></div>
+            <select id="zSensitivity">
+              <option value="low">Few (only big peaks)</option>
+              <option value="med">Balanced</option>
+              <option value="high">Many</option>
+            </select>
+          </div>
+          <div class="field">
+            <div><label for="zStyle">Style</label>
+              <span class="hint">Hold = cut in/out · Ramp = move in/out</span></div>
+            <select id="zStyle">
+              <option value="static">Hold</option>
+              <option value="ramp">Ramp in/out</option>
+            </select>
+          </div>
+          <div class="field hidden" id="zEasingField">
+            <div><label for="zEasing">Motion</label>
+              <span class="hint">How the ramp moves</span></div>
+            <select id="zEasing">
+              <option value="smooth">Smooth (eased)</option>
+              <option value="linear">Linear</option>
+            </select>
+          </div>
+          <div class="field hidden" id="zRampField">
+            <div><label for="zRamp">Zoom speed</label>
+              <span class="hint">Time to push in/out (lower = snappier)</span></div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <input type="range" id="zRamp" min="0.1" max="2" step="0.1" style="width:90px;" />
+              <span class="meta" id="zRampVal" style="width:40px; text-align:right;">0.5s</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card review hidden" id="zReviewCard">
+        <div class="review-head">
+          <span class="summary" id="zSummary">—</span>
+          <label class="selall"><input type="checkbox" id="zSelAll" checked /> All</label>
+        </div>
+        <div class="cut-list" id="zList"></div>
+        <div class="btn-row" style="margin-top: 10px;">
+          <button class="secondary" id="zCancelBtn">Cancel</button>
+          <button class="secondary" id="zMarkerBtn" style="flex: 1.5;" title="Add a timeline marker at each ticked moment so you can jump to it and zoom by hand — no auto-zoom applied">Mark for manual zoom</button>
+          <button class="primary" id="zApplyBtn" style="flex: 1.5;">Apply zooms</button>
+        </div>
+      </div>
+
+      <button class="secondary" id="zClearBtn">Clear all zoom layers</button>
+
+      <!-- Camera Pull: an intro "pull-back" move at the start of the sequence -->
+      <div class="card" style="margin-top:4px;">
+        <div class="settings-toggle" id="cpToggle" style="cursor:pointer;">
+          <span><span class="chev">▸</span> Camera Pull (intro move)</span>
+        </div>
+        <div id="cpBody" style="display:none; padding-top:8px;">
+          <div class="field">
+            <div><label for="cpPeak">Open at</label>
+              <span class="hint">Scale the shot opens punched-in to</span></div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <input type="range" id="cpPeak" min="105" max="160" step="1" style="width:90px;" />
+              <span class="meta" id="cpPeakVal" style="width:40px; text-align:right;">131%</span>
+            </div>
+          </div>
+          <div class="field">
+            <div><label for="cpSettle">Settle to</label>
+              <span class="hint">100% = lands back on normal (no jump after)</span></div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <input type="range" id="cpSettle" min="100" max="130" step="1" style="width:90px;" />
+              <span class="meta" id="cpSettleVal" style="width:40px; text-align:right;">100%</span>
+            </div>
+          </div>
+          <div class="field">
+            <div><label for="cpPull">Pull time</label>
+              <span class="hint">How long the ease-back takes</span></div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <input type="range" id="cpPull" min="0.5" max="5" step="0.1" style="width:90px;" />
+              <span class="meta" id="cpPullVal" style="width:40px; text-align:right;">2.2s</span>
+            </div>
+          </div>
+          <div class="field">
+            <div><label for="cpLen">Hold length</label>
+              <span class="hint">Total length of the layer</span></div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <input type="range" id="cpLen" min="2" max="15" step="0.5" style="width:90px;" />
+              <span class="meta" id="cpLenVal" style="width:40px; text-align:right;">5s</span>
+            </div>
+          </div>
+          <div class="field">
+            <div><label for="cpEase">Ease</label>
+              <span class="hint">“Strong” = fast pull then long settle</span></div>
+            <select id="cpEase">
+              <option value="1">Smooth (auto)</option>
+              <option value="2">Gentle</option>
+              <option value="3">Medium</option>
+              <option value="4">Strong</option>
+              <option value="0">Linear</option>
+            </select>
+          </div>
+          <button class="primary" id="cpApplyBtn" style="margin-top:6px;">Add Camera Pull at start</button>
+          <div class="hint" style="margin-top:6px;">Drops an adjustment layer at the very start of the active sequence. Needs an empty track above your footage and an adjustment layer in the project (same as zooms). Remove it with “Clear all zoom layers”.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ FILLERS TAB ============ -->
+    <div class="tab-panel" id="fillersPanel">
+      <button class="primary" id="fScanBtn">Transcribe &amp; Scan</button>
+
+      <div class="settings open" id="fSettings">
+        <div class="settings-toggle" id="fSettingsToggle">
+          <span><span class="chev">▸</span> Settings</span>
+          <span class="reset-link" id="fResetBtn">Reset defaults</span>
+        </div>
+        <div class="settings-body">
+          <label class="check"><input type="checkbox" id="fDoFillers" checked /> Remove filler words</label>
+          <label class="check"><input type="checkbox" id="fDoRepeats" checked /> Remove repeated words</label>
+          <label class="check"><input type="checkbox" id="fKeepTight" checked /> Keep tight fillers (more natural)</label>
+          <div class="field">
+            <div><label for="fQuality">Accuracy</label>
+              <span class="hint">Higher = better, slower, bigger model</span></div>
+            <select id="fQuality">
+              <option value="base.en">Fast</option>
+              <option value="small.en">Balanced</option>
+              <option value="medium.en">Best</option>
+            </select>
+          </div>
+          <div class="field-col">
+            <label for="fList">Filler words (comma or newline separated)</label>
+            <textarea id="fList"></textarea>
+          </div>
+        </div>
+      </div>
+
+      <div class="card review hidden" id="fReviewCard">
+        <div class="review-head">
+          <span class="summary" id="fSummary">—</span>
+          <label class="selall"><input type="checkbox" id="fSelAll" checked /> All</label>
+        </div>
+        <div class="cut-list" id="fList2"></div>
+        <div class="btn-row" style="margin-top: 10px;">
+          <button class="secondary" id="fCancelBtn">Cancel</button>
+          <button class="primary" id="fApplyBtn" style="flex: 2;">Apply cuts</button>
+        </div>
+      </div>
+
+      <div class="status" style="margin-top:4px;" id="fHint">
+        First scan downloads the speech model once (~150 MB–1.5 GB by accuracy).
+      </div>
+    </div>
+
+    <!-- ============ HIGHLIGHTS TAB ============ -->
+    <div class="tab-panel" id="highlightsPanel">
+      <button class="primary" id="hScanBtn">Find Highlights</button>
+
+      <div class="settings open" id="hSettings">
+        <div class="settings-toggle" id="hSettingsToggle">
+          <span><span class="chev">▸</span> Settings</span>
+          <span class="reset-link" id="hResetBtn">Reset defaults</span>
+        </div>
+        <div class="settings-body">
+          <div class="field">
+            <div><label for="hCount">How many</label>
+              <span class="hint">Top moments to surface</span></div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <input type="range" id="hCount" min="3" max="12" step="1" style="width:90px;" />
+              <span class="meta" id="hCountVal" style="width:24px; text-align:right;">5</span>
+            </div>
+          </div>
+          <div class="field">
+            <div><label for="hQuality">Transcription</label>
+              <span class="hint">Whisper accuracy for the transcript</span></div>
+            <select id="hQuality">
+              <option value="base.en">Fast</option>
+              <option value="small.en">Balanced</option>
+              <option value="medium.en">Best</option>
+            </select>
+          </div>
+          <div class="field">
+            <div><label for="hBrain">AI brain</label>
+              <span class="hint">Local = free/offline · Claude = sharper</span></div>
+            <select id="hBrain" class="qc-brain">
+              <option value="local">Local (qwen)</option>
+              <option value="manual">Claude (manual · claude.ai)</option>
+              <option value="claude-api">Claude (API key)</option>
+            </select>
+          </div>
+          <div class="field-col qc-keyfield hidden">
+            <label for="hKey">Claude API key (stored locally on this machine)</label>
+            <input type="password" id="hKey" class="qc-key" placeholder="sk-ant-..." />
+          </div>
+          <div class="field-col qc-contextfield">
+            <label for="hCtx">Context for the AI <span class="hint">optional — brand, topic, who's speaking (shared across all AI tabs)</span></label>
+            <textarea id="hCtx" class="qc-context" placeholder="e.g. We're clipping for Acme's launch — favor lines about the product or a strong quote."></textarea>
+          </div>
+        </div>
+      </div>
+
+      <div class="card review hidden" id="hReviewCard">
+        <div class="review-head">
+          <span class="summary" id="hSummary">—</span>
+        </div>
+        <div class="cut-list" id="hList" style="max-height: 300px;"></div>
+        <div class="btn-row" style="margin-top: 10px;">
+          <button class="secondary hidden" id="hEditBtn" style="flex:1;" title="Reopen Claude's reply to tweak the JSON — no re-transcribe">✎ Edit reply</button>
+          <button class="secondary" id="hCloseBtn" style="flex:1;">Close</button>
+        </div>
+      </div>
+
+      <div class="status" style="margin-top:4px;" id="hHint">
+        Reads what's said (not how loud) — mic-independent. Local AI, fully offline.
+      </div>
+    </div>
+
+    <!-- ============ CLEANUP TAB (AI transcript edit) ============ -->
+    <div class="tab-panel" id="cleanupPanel">
+      <button class="primary" id="clScanBtn">Transcribe &amp; Suggest Cuts</button>
+
+      <div class="settings open" id="clSettings">
+        <div class="settings-toggle" id="clSettingsToggle">
+          <span><span class="chev">▸</span> Settings</span>
+        </div>
+        <div class="settings-body">
+          <div class="field">
+            <div><label for="clBrain">AI brain</label>
+              <span class="hint">Claude (manual) recommended for best judgment</span></div>
+            <select id="clBrain" class="qc-brain">
+              <option value="local">Local (qwen)</option>
+              <option value="manual">Claude (manual · claude.ai)</option>
+              <option value="claude-api">Claude (API key)</option>
+            </select>
+          </div>
+          <div class="field-col qc-keyfield hidden">
+            <label for="clKey">Claude API key (stored locally on this machine)</label>
+            <input type="password" id="clKey" class="qc-key" placeholder="sk-ant-..." />
+          </div>
+          <div class="field-col qc-contextfield">
+            <label for="clCtx">Context for the AI <span class="hint">optional — brand, topic, who's speaking (shared across all AI tabs)</span></label>
+            <textarea id="clCtx" class="qc-context" placeholder="e.g. She represents Acme — keep anything about our product, pricing, or the campaign, even if it sounds repetitive."></textarea>
+          </div>
+          <div class="field">
+            <div><label for="clQuality">Transcription</label>
+              <span class="hint">Whisper accuracy for the transcript</span></div>
+            <select id="clQuality">
+              <option value="base.en">Fast</option>
+              <option value="small.en">Balanced</option>
+              <option value="medium.en">Best</option>
+            </select>
+          </div>
+          <div class="field">
+            <div><label for="clAggro">How much to cut</label>
+              <span class="hint">Light keeps more · Heavy tightens hard</span></div>
+            <select id="clAggro">
+              <option value="light">Light — only clear dead weight</option>
+              <option value="balanced">Balanced</option>
+              <option value="heavy">Heavy — tighten aggressively</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="card review hidden" id="clReviewCard">
+        <div class="review-head">
+          <span class="summary" id="clSummary">—</span>
+          <label class="selall"><input type="checkbox" id="clSelAll" checked /> All</label>
+        </div>
+        <div class="cut-list" id="clList" style="max-height: 320px;"></div>
+        <div class="btn-row" style="margin-top: 10px;">
+          <button class="secondary hidden" id="clEditBtn" title="Reopen Claude's reply to tweak the JSON, then re-apply — no re-transcribe">✎ Edit reply</button>
+          <button class="secondary" id="clCancelBtn">Cancel</button>
+          <button class="primary" id="clApplyBtn" style="flex: 2;">Apply cuts</button>
+        </div>
+      </div>
+
+      <div class="status" style="margin-top:4px;" id="clHint">
+        Transcribes the sequence, then the AI reads it and proposes cuts (rambles,
+        repeated points, false starts, weak takes). Tick the ones you want, then Apply —
+        same non-destructive razor + ripple as Silence. Click Duplicate first for a safety copy.
+      </div>
+    </div>
+
+    <!-- ============ QUICK CLEAN TAB (run several at once) ============ -->
+    <div class="tab-panel" id="quickPanel">
+      <button class="primary" id="qcScanBtn">Scan selected steps</button>
+
+      <div class="settings open" id="qcSettings">
+        <div class="settings-toggle" id="qcSettingsToggle">
+          <span><span class="chev">▸</span> Steps &amp; settings</span>
+        </div>
+        <div class="settings-body">
+          <label class="check"><input type="checkbox" id="qcDoSilence" checked /> Remove silences</label>
+          <label class="check"><input type="checkbox" id="qcDoFillers" checked /> Remove fillers &amp; repetitions</label>
+          <label class="check"><input type="checkbox" id="qcDoCleanup" /> AI cleanup (rambles, repeats, false starts)</label>
+          <label class="check"><input type="checkbox" id="qcDoZoom" /> Then add punch-in zooms (after cuts)</label>
+
+          <div class="field" id="qcBrainField">
+            <div><label for="qcBrain">AI brain</label>
+              <span class="hint">For AI cleanup · Claude (manual) recommended</span></div>
+            <select id="qcBrain" class="qc-brain">
+              <option value="local">Local (qwen)</option>
+              <option value="manual">Claude (manual · claude.ai)</option>
+              <option value="claude-api">Claude (API key)</option>
+            </select>
+          </div>
+          <div class="field-col qc-keyfield hidden">
+            <label for="qcKey">Claude API key (stored locally on this machine)</label>
+            <input type="password" id="qcKey" class="qc-key" placeholder="sk-ant-..." />
+          </div>
+          <div class="field-col qc-contextfield">
+            <label for="qcCtx">Context for the AI <span class="hint">optional — brand, topic, who's speaking (shared across all AI tabs)</span></label>
+            <textarea id="qcCtx" class="qc-context" placeholder="e.g. She represents Acme — keep anything about our product, pricing, or the campaign, even if it sounds repetitive."></textarea>
+          </div>
+          <div class="field">
+            <div><label for="qcQuality">Transcription</label>
+              <span class="hint">Shared by fillers + cleanup (one pass)</span></div>
+            <select id="qcQuality">
+              <option value="base.en">Fast</option>
+              <option value="small.en">Balanced</option>
+              <option value="medium.en">Best</option>
+            </select>
+          </div>
+          <div class="field">
+            <div><label for="qcAggro">Cleanup strength</label>
+              <span class="hint">How hard AI cleanup cuts</span></div>
+            <select id="qcAggro">
+              <option value="light">Light</option>
+              <option value="balanced">Balanced</option>
+              <option value="heavy">Heavy</option>
+            </select>
+          </div>
+          <div class="hint" style="margin-top:4px;">Silence uses your Silence-tab settings; fillers use your Fillers-tab word list.</div>
+        </div>
+      </div>
+
+      <div class="meta" id="qcSteps"></div>
+
+      <div class="card review hidden" id="qcReviewCard">
+        <div class="review-head">
+          <span class="summary" id="qcSummary">—</span>
+          <label class="selall"><input type="checkbox" id="qcSelAll" checked /> All</label>
+        </div>
+        <div class="chips" id="qcFilters" style="margin-bottom:8px;"></div>
+        <div class="cut-list" id="qcList" style="max-height: 280px;"></div>
+        <div class="btn-row" style="margin-top: 10px;">
+          <button class="secondary" id="qcCancelBtn">Cancel</button>
+          <button class="primary" id="qcApplyBtn" style="flex: 2;">Apply cuts</button>
+        </div>
+      </div>
+
+      <div class="status" style="margin-top:4px;" id="qcHint">
+        One pass: detects everything on the untouched timeline, you review one combined
+        list, and all cuts apply together (safe ordering — no double-cut drift). Click
+        Duplicate first for a safety copy.
+      </div>
+    </div>
+
+    <!-- ============ VOX POP TAB ============ -->
+    <div class="tab-panel" id="voxpopPanel">
+      <button class="primary" id="vpScanBtn">Analyze Interviews</button>
+
+      <div class="settings open" id="vpSettings">
+        <div class="settings-toggle" id="vpSettingsToggle">
+          <span><span class="chev">▸</span> Settings</span>
+        </div>
+        <div class="settings-body">
+          <div class="field">
+            <div><label for="vpBrain">AI brain</label>
+              <span class="hint">Claude (manual) recommended for best judgment</span></div>
+            <select id="vpBrain" class="qc-brain">
+              <option value="local">Local (qwen)</option>
+              <option value="manual">Claude (manual · claude.ai)</option>
+              <option value="claude-api">Claude (API key)</option>
+            </select>
+          </div>
+          <div class="field-col qc-keyfield hidden">
+            <label for="vpKey">Claude API key (stored locally on this machine)</label>
+            <input type="password" id="vpKey" class="qc-key" placeholder="sk-ant-..." />
+          </div>
+          <div class="field-col qc-contextfield">
+            <label for="vpCtx">Context for the AI <span class="hint">optional — brand, topic, who's speaking (shared across all AI tabs)</span></label>
+            <textarea id="vpCtx" class="qc-context" placeholder="e.g. Street interviews about Acme's new app — favor funny, on-brand answers."></textarea>
+          </div>
+          <div class="field">
+            <div><label for="vpQuality">Transcription</label>
+              <span class="hint">Whisper accuracy per interview</span></div>
+            <select id="vpQuality">
+              <option value="base.en">Fast</option>
+              <option value="small.en">Balanced</option>
+              <option value="medium.en">Best</option>
+            </select>
+          </div>
+          <div class="field">
+            <div><label for="vpPad">Padding</label>
+              <span class="hint">Breath kept around each soundbite so words aren't clipped</span></div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <input type="range" id="vpPad" min="0" max="0.6" step="0.05" style="width:90px;" />
+              <span class="meta" id="vpPadVal" style="width:42px; text-align:right;">0.20s</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card review hidden" id="vpReviewCard">
+        <div class="review-head">
+          <span class="summary" id="vpSummary">—</span>
+        </div>
+        <div class="cut-list" id="vpList" style="max-height: 300px;"></div>
+        <div class="btn-row" style="margin-top: 10px;">
+          <button class="primary" id="vpBuildBtn" style="flex:2;">Build Vox Pop edit</button>
+          <button class="secondary hidden" id="vpEditBtn" style="flex:1;" title="Reopen Claude's reply to tweak the JSON — no re-transcribe">✎ Edit reply</button>
+          <button class="secondary" id="vpCloseBtn" style="flex:1;">Close</button>
+        </div>
+      </div>
+
+      <div class="status" style="margin-top:4px;" id="vpHint">
+        Put each interview clip on one sequence. Analyze proposes the montage;
+        Build assembles it into a new "– Vox Pop" sequence (your originals stay
+        untouched). Reads what's said, so mic type doesn't matter.
+      </div>
+    </div>
+
+    <!-- ============ STORY TAB (documentary narrative from interview[s]) ============ -->
+    <div class="tab-panel" id="storyPanel">
+      <button class="primary" id="stScanBtn">Build story from interview</button>
+
+      <div class="settings open" id="stSettings">
+        <div class="settings-toggle" id="stSettingsToggle">
+          <span><span class="chev">▸</span> Settings</span>
+        </div>
+        <div class="settings-body">
+          <div class="field">
+            <div><label for="stBrain">AI brain</label>
+              <span class="hint">Claude (manual) recommended — narrative is the hard part</span></div>
+            <select id="stBrain" class="qc-brain">
+              <option value="local">Local (qwen)</option>
+              <option value="manual">Claude (manual · claude.ai)</option>
+              <option value="claude-api">Claude (API key)</option>
+            </select>
+          </div>
+          <div class="field-col qc-keyfield hidden">
+            <label for="stKey">Claude API key (stored locally on this machine)</label>
+            <input type="password" id="stKey" class="qc-key" placeholder="sk-ant-..." />
+          </div>
+          <div class="field-col qc-contextfield">
+            <label for="stCtx">Context for the AI <span class="hint">optional — what's the film about, angle, who's speaking (shared across all AI tabs)</span></label>
+            <textarea id="stCtx" class="qc-context" placeholder="e.g. Mini-doc on a small-town baker; angle = perseverance. Keep the emotional beats, lose shop-logistics tangents."></textarea>
+          </div>
+          <div class="field">
+            <div><label for="stPace">Length</label>
+              <span class="hint">How much of the story to keep</span></div>
+            <select id="stPace">
+              <option value="tight">Tight — only the strongest beats</option>
+              <option value="balanced">Balanced</option>
+              <option value="thorough">Thorough — full arc with detail</option>
+            </select>
+          </div>
+          <div class="field">
+            <div><label for="stQuality">Transcription</label>
+              <span class="hint">Whisper accuracy</span></div>
+            <select id="stQuality">
+              <option value="base.en">Fast</option>
+              <option value="small.en">Balanced</option>
+              <option value="medium.en">Best</option>
+            </select>
+          </div>
+          <div class="field">
+            <div><label for="stPad">Padding</label>
+              <span class="hint">Breath kept around each beat so words aren't clipped</span></div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <input type="range" id="stPad" min="0" max="0.6" step="0.05" style="width:90px;" />
+              <span class="meta" id="stPadVal" style="width:42px; text-align:right;">0.20s</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card review hidden" id="stReviewCard">
+        <div class="review-head">
+          <span class="summary" id="stSummary">—</span>
+          <button class="secondary hidden" id="stEditBtn" title="Reopen Claude's reply to tweak the JSON — no re-transcribe">✎ Edit reply</button>
+        </div>
+        <div class="cut-list" id="stList" style="max-height: 320px;"></div>
+        <div class="btn-row" style="margin-top: 10px;">
+          <button class="primary" id="stBuildBtn" style="flex:2;">Build story edit</button>
+          <button class="secondary" id="stCloseBtn" style="flex:1;">Close</button>
+        </div>
+      </div>
+
+      <div class="status" style="margin-top:4px;" id="stHint">
+        Put your interview recording(s) on one sequence. The AI drops the questions and
+        filler, picks the strongest moments, and orders them into a narrative — then Build
+        assembles a new "– Story" sequence from the source media. Reorder or deselect beats
+        before building. Originals stay untouched.
+      </div>
+    </div>
+
+    <!-- ============ CAPTIONS TAB ============ -->
+    <div class="tab-panel" id="captionsPanel">
+      <button class="primary" id="capScanBtn">Transcribe &amp; build captions</button>
+
+      <div class="settings" id="capSettings">
+        <div class="settings-toggle" id="capSettingsToggle">
+          <span><span class="chev">▸</span> Style &amp; settings</span>
+        </div>
+        <div class="settings-body">
+          <div class="field">
+            <div><label for="capQuality">Transcription</label>
+              <span class="hint">Whisper accuracy</span></div>
+            <select id="capQuality">
+              <option value="base.en">Fast</option>
+              <option value="small.en">Balanced</option>
+              <option value="medium.en">Best</option>
+            </select>
+          </div>
+          <div class="field">
+            <div><label for="capWords">Words per line</label>
+              <span class="hint">Changing this re-flows &amp; resets edits</span></div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <input type="range" id="capWords" min="1" max="8" step="1" style="width:90px;" />
+              <span class="meta" id="capWordsVal" style="width:24px; text-align:right;">4</span>
+            </div>
+          </div>
+          <div class="field">
+            <div><label for="capFont">Font</label>
+              <span class="hint">Must be installed on this machine</span></div>
+            <input type="text" id="capFont" value="Arial" style="width:130px;" />
+          </div>
+          <div class="field">
+            <div><label for="capSize">Size</label></div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <input type="range" id="capSize" min="24" max="120" step="2" style="width:90px;" />
+              <span class="meta" id="capSizeVal" style="width:32px; text-align:right;">52</span>
+            </div>
+          </div>
+          <label class="check"><input type="checkbox" id="capBold" checked /> Bold</label>
+          <div class="field">
+            <div><label for="capActive">Active word</label>
+              <span class="hint">Colour of the word being said</span></div>
+            <input type="color" id="capActive" value="#ffffff" />
+          </div>
+          <div class="field">
+            <div><label for="capBase">Other words</label>
+              <span class="hint">Past / future words</span></div>
+            <input type="color" id="capBase" value="#c9c9c9" />
+          </div>
+          <div class="field">
+            <div><label for="capMode">Background</label>
+              <span class="hint">Box = solid behind text · Hug = outline only</span></div>
+            <select id="capMode">
+              <option value="box">Box</option>
+              <option value="hug">Hug lines (outline)</option>
+            </select>
+          </div>
+          <div class="field">
+            <div><label for="capBox">Box / outline colour</label></div>
+            <input type="color" id="capBox" value="#101010" />
+          </div>
+          <div class="field">
+            <div><label for="capPos">Position</label></div>
+            <select id="capPos">
+              <option value="bottom">Bottom</option>
+              <option value="center">Center</option>
+              <option value="top">Top</option>
+            </select>
+          </div>
+          <div class="field">
+            <div><label for="capContainer">Overlay format</label>
+              <span class="hint">ProRes 4444 is most reliable</span></div>
+            <select id="capContainer">
+              <option value="prores">ProRes 4444 (.mov)</option>
+              <option value="qtrle">QuickTime RLE (.mov)</option>
+              <option value="webm">VP9 alpha (.webm)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="card review hidden" id="capReviewCard">
+        <div class="review-head">
+          <span class="summary" id="capSummary">—</span>
+        </div>
+        <div class="cut-list" id="capList" style="max-height: 260px;"></div>
+        <div class="btn-row" style="margin-top: 10px;">
+          <button class="primary" id="capBurnBtn" style="flex:2;">Burn styled captions</button>
+          <button class="secondary" id="capSrtBtn" style="flex:1;">Plain track</button>
+        </div>
+      </div>
+
+      <div class="status" style="margin-top:4px;" id="capHint">
+        Transcribes, then lets you <b>fix wrong words</b> in the list before committing.
+        <b>Burn styled captions</b> renders the karaoke overlay (active-word highlight) and
+        drops it on a top track. <b>Plain track</b> makes a native, editable (unstyled)
+        Premiere caption track. Needs an empty video track on top.
+      </div>
+    </div>
+
+    <!-- ============ SPEAKER TAB (name/company/title → LinkedIn) ============ -->
+    <div class="tab-panel" id="speakerPanel">
+      <button class="primary" id="spScanBtn">Find speaker details</button>
+
+      <div class="settings open" id="spSettings">
+        <div class="settings-toggle" id="spSettingsToggle">
+          <span><span class="chev">▸</span> Settings</span>
+        </div>
+        <div class="settings-body">
+          <div class="field">
+            <div><label for="spBrain">AI brain</label>
+              <span class="hint">Local (qwen) by default — light work, no need to use Claude</span></div>
+            <select id="spBrain">
+              <option value="local">Local (qwen)</option>
+              <option value="manual">Claude (manual · claude.ai)</option>
+              <option value="claude-api">Claude (API key · shared)</option>
+            </select>
+          </div>
+          <div class="field-col qc-contextfield">
+            <label for="spCtx">Context for the AI <span class="hint">optional — brand, topic, who's speaking (shared across all AI tabs)</span></label>
+            <textarea id="spCtx" class="qc-context" placeholder="e.g. Conference interview at Acme's booth; the guest is a customer of ours."></textarea>
+          </div>
+          <div class="field">
+            <div><label for="spQuality">Transcription</label>
+              <span class="hint">Whisper accuracy for the transcript</span></div>
+            <select id="spQuality">
+              <option value="base.en">Fast</option>
+              <option value="small.en">Balanced</option>
+              <option value="medium.en">Best</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="card review hidden" id="spReviewCard">
+        <div class="review-head">
+          <span class="summary" id="spSummary">—</span>
+          <button class="secondary hidden" id="spEditBtn" title="Reopen Claude's reply to tweak the JSON">✎ Edit reply</button>
+        </div>
+        <div id="spList"></div>
+      </div>
+
+      <div class="status" style="margin-top:4px;" id="spHint">
+        Transcribes the sequence and reads <b>who's speaking</b> — name, company, and job
+        title — from how they introduce themselves. Fields are editable (the AI can mishear);
+        then click <b>Find on LinkedIn</b> to open a Google search for that person.
+      </div>
+    </div>
+
+    <div class="status" id="status">Open a sequence to begin.</div>
+
+    <footer>
+      Edits apply to the <b>active sequence</b> shown above. Click
+      <b>Duplicate</b> first if you want to keep an untouched copy. Your media
+      files are never modified.
+      <div style="margin-top:6px;">
+        <span class="reset-link" id="inspectBtn" title="Read the effects + keyframes off the selected clip">⌕ Inspect selected clip’s effects</span>
+      </div>
+    </footer>
+
+    <!-- Manual claude.ai bridge -->
+    <div class="overlay hidden" id="manualOverlay">
+      <h3>Run this in claude.ai</h3>
+      <div class="step"><b>Step 1</b> — the prompt is copied. Click below to open claude.ai (pick <b>Opus</b>), then paste it in.</div>
+      <textarea class="prompt-area" id="mPrompt" readonly></textarea>
+      <div class="btn-row">
+        <button class="secondary" id="mCopyBtn" style="flex:1;">Copy again</button>
+        <button class="primary" id="mOpenBtn" style="flex:2;">Open claude.ai</button>
+      </div>
+      <div class="step"><b>Step 2</b> — paste Claude's full reply here:</div>
+      <textarea class="reply-area" id="mReply" placeholder="Paste everything Claude replied (it includes the JSON)…"></textarea>
+      <div class="status" id="mStatus"></div>
+      <div class="btn-row">
+        <button class="secondary" id="mCancelBtn">Cancel</button>
+        <button class="primary" id="mUseBtn" style="flex:2;">Use this reply</button>
+      </div>
+    </div>
+
+    <!-- Inspect: dump the selected clip's effects + keyframes to paste/share -->
+    <div class="overlay hidden" id="inspectOverlay">
+      <h3>Selected clip’s effects</h3>
+      <div class="step">This is the exact effect + keyframe data on the clip you selected. Copy it and paste it to me, and I’ll turn it into a one-click option.</div>
+      <textarea class="prompt-area" id="iDump" readonly style="flex:1;"></textarea>
+      <div class="status" id="iStatus"></div>
+      <div class="btn-row">
+        <button class="secondary" id="iCloseBtn" style="flex:1;">Close</button>
+        <button class="primary" id="iCopyBtn" style="flex:2;">Copy</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="./js/CSInterface.js"></script>
+  <script src="./js/audio.js"></script>
+  <script src="./js/ai.js"></script>
+  <script src="./js/captions.js"></script>
+  <script src="./js/main.js"></script>
+</body>
+</html>
