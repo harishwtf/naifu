@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-#  QuietCut — one-time developer setup (macOS). Mirrors setup.ps1.
+#  Naifu — one-time developer setup (macOS). Mirrors setup.ps1.
 #
 #  It does three reversible things so Premiere loads our unsigned panel:
 #    1. Turns on CEP "debug / unsigned extensions" mode.
@@ -12,7 +12,7 @@
 #
 set -e
 
-BUNDLE_ID="com.quietcut.panel"
+BUNDLE_ID="com.naifu.panel"
 SOURCE_DIR="$(cd "$(dirname "$0")" && pwd)"
 EXT_ROOT="$HOME/Library/Application Support/Adobe/CEP/extensions"
 LINK_PATH="$EXT_ROOT/$BUNDLE_ID"
@@ -31,14 +31,14 @@ set_debug() {
 }
 
 if [ "$1" = "--uninstall" ]; then
-  echo "Uninstalling QuietCut developer setup..."
+  echo "Uninstalling Naifu developer setup..."
   if [ -L "$LINK_PATH" ]; then rm "$LINK_PATH"; echo "  Removed link: $LINK_PATH"; else echo "  No link found."; fi
   set_debug 0
   echo "Done. Restart Premiere Pro to apply."
   exit 0
 fi
 
-echo "Installing QuietCut developer setup (macOS)..."
+echo "Installing Naifu developer setup (macOS)..."
 
 echo "Enabling CEP debug mode..."
 set_debug 1
@@ -83,7 +83,7 @@ the big model weights are NOT bundled — the panel downloads them on first use:
       a local-AI feature — no manual pull needed.
 
 Then: fully quit Premiere Pro, reopen a project with a sequence,
-      Window menu -> Extensions -> QuietCut.
+      Window menu -> Extensions -> Naifu.
 NOTE
 
 echo ""

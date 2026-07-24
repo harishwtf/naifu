@@ -1,5 +1,5 @@
 /*
- * QuietCut - ExtendScript host layer.
+ * Naifu - ExtendScript host layer.
  *
  * This is the ONLY layer that touches the Premiere timeline. The panel UI
  * (js/main.js) calls these functions via CSInterface.evalScript(). Keeping all
@@ -206,7 +206,7 @@ function qcActiveSequenceName() {
  * copy. Operations themselves no longer auto-duplicate — the user decides when
  * they want a safety copy, then runs as many actions on it as they like.
  *
- * @return {string} JSON {"ok":true,"name":"My Seq - QuietCut"}
+ * @return {string} JSON {"ok":true,"name":"My Seq - Naifu"}
  */
 function qcDuplicateSequence() {
     try {
@@ -235,7 +235,7 @@ function qcDuplicateSequence() {
         }
 
         // Try to give it a clear name. Some versions make name read-only.
-        var desired = original.name + " - QuietCut";
+        var desired = original.name + " - Naifu";
         try { clone.name = desired; } catch (rn) {}
 
         // Make the clone the active/front sequence so edits apply to it.

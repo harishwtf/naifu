@@ -1,5 +1,5 @@
 /*
- * QuietCut - captions (karaoke overlay + plain SRT).
+ * Naifu - captions (karaoke overlay + plain SRT).
  *
  * Premiere's scripting can't create styled, word-highlighted captions (no caption
  * styling API, no native active-word mode). So — like Captions/Submagic/CapCut —
@@ -200,13 +200,13 @@ var QCCaptions = (function () {
       var src = "color=c=black@0.0:s=" + size + ":r=" + fps + ":d=" + dur.toFixed(3);
       var common = ["-hide_banner", "-y", "-f", "lavfi", "-i", src, "-vf", "ass=cap.ass"];
       if (container === "qtrle") {
-        outName = "QuietCutCaptions.mov";
+        outName = "NaifuCaptions.mov";
         args = common.concat(["-c:v", "qtrle", "-pix_fmt", "argb", outName]);
       } else if (container === "webm") {
-        outName = "QuietCutCaptions.webm";
+        outName = "NaifuCaptions.webm";
         args = common.concat(["-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", outName]);
       } else {
-        outName = "QuietCutCaptions.mov";
+        outName = "NaifuCaptions.mov";
         args = common.concat(["-c:v", "prores_ks", "-profile:v", "4444", "-pix_fmt", "yuva444p10le", outName]);
       }
       var outPath = path.join(dir, outName);

@@ -1,4 +1,4 @@
-# QuietCut
+# Naifu
 
 A Premiere Pro panel that automates the repetitive parts of talking-head edits:
 
@@ -47,11 +47,11 @@ You don't need to install Node or Python for Phase 0 — Premiere hosts the pane
    This does two reversible things:
    - Turns on CEP "unsigned extensions" mode in the registry (`PlayerDebugMode`).
    - Links this folder into Premiere's extensions folder
-     (`%APPDATA%\Adobe\CEP\extensions\com.quietcut.panel`) so edits here are live.
+     (`%APPDATA%\Adobe\CEP\extensions\com.naifu.panel`) so edits here are live.
 
 3. Fully quit Premiere Pro if it's open, then reopen it.
 4. Open a project that has a sequence.
-5. **Window → Extensions → QuietCut.**
+5. **Window → Extensions → Naifu.**
 
 The setup script also downloads **FFmpeg** into `bin/` (used from Phase 1 on).
 No system install or PATH change — it's self-contained.
@@ -77,13 +77,13 @@ big **model weights are not bundled** and download on first use (see the Local b
 ### Test Phase 1 (silence removal)
 
 1. Open a project with a talking-head sequence in the Timeline.
-2. Open the panel (**Window → Extensions → QuietCut**).
+2. Open the panel (**Window → Extensions → Naifu**).
 3. (Optional) open **Settings** to tune:
    - **Noise threshold** (default −30 dB) — quieter than this counts as silence.
    - **Min silence length** (default 500 ms) — pauses shorter than this are kept.
    - **Padding** (default 100 ms) — breath left around speech so cuts don't clip.
 4. (Optional) If you want to keep an untouched copy, click **Duplicate** in the
-   top bar first — it makes "… – QuietCut", switches to it, and the bar shows
+   top bar first — it makes "… – Naifu", switches to it, and the bar shows
    you're now editing the copy. Operations always apply to the **active
    sequence** shown there; they never auto-duplicate.
 5. Click **Scan for Silences**. The panel reads each audio clip's source file,
@@ -92,7 +92,7 @@ big **model weights are not bundled** and download on first use (see the Local b
    ripple-deletes the chosen silences on the active sequence.
 
 **To undo:** Ctrl+Z (may take a few presses), or — if you clicked Duplicate
-first — just delete the "– QuietCut" sequence to revert completely.
+first — just delete the "– Naifu" sequence to revert completely.
 
 ### Test Phase 2 (auto punch-in zoom)
 

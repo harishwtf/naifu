@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  QuietCut - CEP extension manifest for Adobe Premiere Pro.
+  Naifu - CEP extension manifest for Adobe Premiere Pro.
   Host "PPRO" = Premiere Pro. Version range kept wide so it loads on 2024/2025/2026.
 -->
 <ExtensionManifest Version="7.0"
-                   ExtensionBundleId="com.quietcut.panel"
+                   ExtensionBundleId="com.naifu.panel"
                    ExtensionBundleVersion="0.1.0"
-                   ExtensionBundleName="QuietCut"
+                   ExtensionBundleName="Naifu"
                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
 
   <ExtensionList>
-    <Extension Id="com.quietcut.panel.main" Version="0.1.0" />
+    <Extension Id="com.naifu.panel.main" Version="0.1.0" />
   </ExtensionList>
 
   <ExecutionEnvironment>
@@ -27,7 +27,7 @@
   </ExecutionEnvironment>
 
   <DispatchInfoList>
-    <Extension Id="com.quietcut.panel.main">
+    <Extension Id="com.naifu.panel.main">
       <DispatchInfo>
         <Resources>
           <MainPath>./index.html</MainPath>
@@ -44,7 +44,7 @@
         </Lifecycle>
         <UI>
           <Type>Panel</Type>
-          <Menu>QuietCut</Menu>
+          <Menu>Naifu</Menu>
           <Geometry>
             <Size>
               <Height>560</Height>

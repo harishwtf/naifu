@@ -1,5 +1,5 @@
 <#
-  QuietCut - one-time developer setup (Windows).
+  Naifu - one-time developer setup (Windows).
 
   This does two reversible things so Premiere will load our unsigned panel:
     1. Turns on CEP "debug / unsigned extensions" mode in the registry.
@@ -19,7 +19,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$BundleId    = "com.quietcut.panel"
+$BundleId    = "com.naifu.panel"
 $SourceDir   = $PSScriptRoot
 $ExtRoot     = Join-Path $env:APPDATA "Adobe\CEP\extensions"
 $LinkPath    = Join-Path $ExtRoot $BundleId
@@ -84,7 +84,7 @@ function Set-PlayerDebugMode([string]$value) {
 }
 
 if ($Uninstall) {
-    Write-Host "Uninstalling QuietCut developer setup..." -ForegroundColor Cyan
+    Write-Host "Uninstalling Naifu developer setup..." -ForegroundColor Cyan
 
     if (Test-Path $LinkPath) {
         # Remove only the junction/link, never the real source files.
@@ -99,7 +99,7 @@ if ($Uninstall) {
     return
 }
 
-Write-Host "Installing QuietCut developer setup..." -ForegroundColor Cyan
+Write-Host "Installing Naifu developer setup..." -ForegroundColor Cyan
 
 # 1. Enable unsigned/debug extensions.
 Write-Host "Enabling CEP debug mode..."
@@ -125,4 +125,4 @@ Write-Host "Done!" -ForegroundColor Green
 Write-Host "Next:"
 Write-Host "  1. Fully quit Premiere Pro if it is running."
 Write-Host "  2. Reopen Premiere and a project with a sequence."
-Write-Host "  3. Window menu -> Extensions -> QuietCut."
+Write-Host "  3. Window menu -> Extensions -> Naifu."

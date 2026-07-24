@@ -1,5 +1,5 @@
 /*
- * QuietCut - local AI brain (Phase 4: Highlights / "best parts").
+ * Naifu - local AI brain (Phase 4: Highlights / "best parts").
  *
  * Talks to a local Ollama server (started on demand from the bundled portable
  * ollama.exe) and asks a language model to read the interview transcript and

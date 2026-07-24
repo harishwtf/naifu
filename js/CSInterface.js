@@ -1,5 +1,5 @@
 /*
- * QuietCut - minimal CSInterface shim.
+ * Naifu - minimal CSInterface shim.
  *
  * Adobe ships a large CSInterface.js with their CEP samples. We only need a
  * small, well-understood subset for this panel, so this file implements just

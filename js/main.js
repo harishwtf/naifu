@@ -1,8 +1,8 @@
 /*
- * QuietCut - panel UI logic.
+ * Naifu - panel UI logic.
  *   Tab 1 (Silence): FFmpeg silencedetect -> review -> razor + ripple-delete.
  *   Tab 2 (Zoom):    pick segments (smart/alternate/every) -> review -> Motion Scale.
- * All edits land on a non-destructive "- QuietCut" duplicate.
+ * All edits land on a non-destructive "- Naifu" duplicate.
  */
 (function () {
   "use strict";
@@ -30,7 +30,7 @@
 
   // The editing engine (jsx/host.jsx) didn't load, or a call hit a function
   // that isn't there — almost always fixed by reloading the panel.
-  var RELOAD_HINT = "Couldn't reach the editing engine. Reload the panel (close QuietCut and reopen it from Window → Extensions), and make sure a project is open.";
+  var RELOAD_HINT = "Couldn't reach the editing engine. Reload the panel (close Naifu and reopen it from Window → Extensions), and make sure a project is open.";
 
   function parseHostResult(raw) {
     if (raw === undefined || raw === null || raw === "") {
@@ -304,7 +304,7 @@
         return res;
       }
       var name = res.name || "";
-      var isCopy = /quietcut|vox pop/i.test(name);
+      var isCopy = /naifu|quietcut|vox pop|story/i.test(name);
       els.activeSeq.innerHTML = "";
       els.activeSeq.appendChild(document.createTextNode(name));
       if (isCopy) {
@@ -2270,7 +2270,7 @@
     capEls.burnBtn.disabled = true; capEls.srtBtn.disabled = true;
     setStatus("Creating caption track…", "busy");
     var srtPath;
-    try { srtPath = QCCaptions.writeTemp("QuietCutCaptions.srt", QCCaptions.buildSrt(cap.lines)); }
+    try { srtPath = QCCaptions.writeTemp("NaifuCaptions.srt", QCCaptions.buildSrt(cap.lines)); }
     catch (e) {
       capEls.burnBtn.disabled = false; capEls.srtBtn.disabled = false;
       setStatus("Could not write the SRT: " + e.message, "err"); return;

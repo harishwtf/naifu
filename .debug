@@ -5,7 +5,7 @@
   in Chrome to inspect the UI, see console.log output, and debug main.js.
 -->
 <ExtensionList>
-  <Extension Id="com.quietcut.panel.main">
+  <Extension Id="com.naifu.panel.main">
     <HostList>
       <Host Name="PPRO" Port="8088" />
     </HostList>

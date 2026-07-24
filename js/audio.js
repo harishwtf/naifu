@@ -1,5 +1,5 @@
 /*
- * QuietCut - audio analysis (Phase 1).
+ * Naifu - audio analysis (Phase 1).
  *
  * Runs FFmpeg's `silencedetect` filter on each audio clip's source media (via
  * CEP's built-in Node.js), then maps the detected silences back onto the
@@ -23,7 +23,7 @@ var QCAudio = (function () {
   // are the most common "it doesn't work" cases for a fresh install, so the
   // wording tells the user exactly what to do rather than dumping a path.
   var MISSING_HELP = {
-    ffmpeg: "FFmpeg isn't installed yet. Run setup.ps1 in the QuietCut folder, then restart Premiere.",
+    ffmpeg: "FFmpeg isn't installed yet. Run setup.ps1 in the Naifu folder, then restart Premiere.",
     whisper: "The speech engine (Faster-Whisper) isn't installed yet. See the README for the one-time download into bin\\, then restart Premiere."
   };
   function binMissing(kind) {
