@@ -164,6 +164,74 @@ var QCAi = (function () {
     });
   }
 
+  /* ---------- on-demand model download (so we don't ship 5 GB of weights) ---------- */
+
+  // The panel reports pull progress through this (set once by main.js).
+  var pullProgressCb = null;
+  function onPullProgress(fn) { pullProgressCb = fn; }
+
+  /** Is `model` already downloaded? Asks Ollama's /api/tags. */
+  function modelPresent(model) {
+    return httpGet("/api/tags").then(function (r) {
+      try {
+        var list = JSON.parse(r.body).models || [];
+        var base = String(model).split(":")[0];
+        for (var i = 0; i < list.length; i++) {
+          var nm = list[i].name || list[i].model || "";
+          if (nm === model || nm.split(":")[0] === base) { return true; }
+        }
+      } catch (e) {}
+      return false;
+    }).catch(function () { return false; });
+  }
+
+  /** Download `model` via Ollama, streaming {status, percent} to onProgress. */
+  function pullModel(model, onProgress) {
+    return new Promise(function (resolve, reject) {
+      var http = nodeRequire("http");
+      var payload = JSON.stringify({ model: model, stream: true });
+      var req = http.request({
+        host: HOST, port: PORT, path: "/api/pull", method: "POST",
+        headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) }
+      }, function (res) {
+        var buf = "";
+        res.on("data", function (c) {
+          buf += c;
+          var lines = buf.split("\n"); buf = lines.pop();
+          for (var i = 0; i < lines.length; i++) {
+            if (!lines[i].trim()) { continue; }
+            try {
+              var o = JSON.parse(lines[i]);
+              if (o.error) { reject(new Error(o.error)); return; }
+              if (onProgress) {
+                var pct = (o.total && o.completed) ? Math.round(o.completed / o.total * 100) : null;
+                onProgress(o.status || "", pct);
+              }
+            } catch (e) {}
+          }
+        });
+        res.on("end", function () { resolve(true); });
+      });
+      req.on("error", reject);
+      req.write(payload); req.end();
+    });
+  }
+
+  /**
+   * Run a local generation, downloading the model first if it isn't installed
+   * (the model is fetched on first use, not bundled). Shared by every local brain.
+   */
+  function runLocal(cfg, prompt) {
+    return ensureServer(cfg.ollamaExe, cfg.modelsDir)
+      .then(function () { return modelPresent(cfg.model); })
+      .then(function (present) {
+        if (present) { return true; }
+        if (pullProgressCb) { pullProgressCb("starting the download", null); }
+        return pullModel(cfg.model, pullProgressCb);
+      })
+      .then(function () { return generate(cfg.model, prompt); });
+  }
+
   /**
    * Optional free-text context the editor typed (brand, topic, who's speaking).
    * Woven near the top of any AI prompt so the model judges with it in mind.
@@ -227,7 +295,7 @@ var QCAi = (function () {
       }
       gen = generateClaudeApi(prompt, cfg.apiKey);
     } else {
-      gen = ensureServer(cfg.ollamaExe, cfg.modelsDir).then(function () { return generate(cfg.model, prompt); });
+      gen = runLocal(cfg, prompt);
     }
     return gen.then(function (resp) { return parseHighlights(resp, cfg.segments); });
   }
@@ -293,7 +361,7 @@ var QCAi = (function () {
       if (!cfg.apiKey) { return Promise.reject(new Error("Enter your Claude API key (or use the manual brain).")); }
       gen = generateClaudeApi(prompt, cfg.apiKey);
     } else {
-      gen = ensureServer(cfg.ollamaExe, cfg.modelsDir).then(function () { return generate(cfg.model, prompt); });
+      gen = runLocal(cfg, prompt);
     }
     return gen.then(function (resp) { return parseTranscriptEdits(resp, cfg.segments); });
   }
@@ -378,7 +446,7 @@ var QCAi = (function () {
       if (!cfg.apiKey) { return Promise.reject(new Error("Enter your Claude API key (or use the manual brain).")); }
       gen = generateClaudeApi(prompt, cfg.apiKey);
     } else {
-      gen = ensureServer(cfg.ollamaExe, cfg.modelsDir).then(function () { return generate(cfg.model, prompt); });
+      gen = runLocal(cfg, prompt);
     }
     return gen.then(function (resp) { return parseVoxPop(resp, cfg.clips); });
   }
@@ -451,7 +519,7 @@ var QCAi = (function () {
       if (!cfg.apiKey) { return Promise.reject(new Error("Enter your Claude API key (or use the manual brain).")); }
       gen = generateClaudeApi(prompt, cfg.apiKey);
     } else {
-      gen = ensureServer(cfg.ollamaExe, cfg.modelsDir).then(function () { return generate(cfg.model, prompt); });
+      gen = runLocal(cfg, prompt);
     }
     return gen.then(function (resp) { return parseStory(resp, cfg.clips); });
   }
@@ -493,7 +561,7 @@ var QCAi = (function () {
       if (!cfg.apiKey) { return Promise.reject(new Error("Enter your Claude API key (or use the manual brain).")); }
       gen = generateClaudeApi(prompt, cfg.apiKey);
     } else {
-      gen = ensureServer(cfg.ollamaExe, cfg.modelsDir).then(function () { return generate(cfg.model, prompt); });
+      gen = runLocal(cfg, prompt);
     }
     return gen.then(function (resp) { return parseSpeakers(resp); });
   }
@@ -501,6 +569,9 @@ var QCAi = (function () {
   return {
     nodeAvailable: nodeAvailable,
     ensureServer: ensureServer,
+    onPullProgress: onPullProgress,
+    modelPresent: modelPresent,
+    pullModel: pullModel,
     findHighlights: findHighlights,
     buildHighlightPrompt: buildHighlightPrompt,
     parseHighlights: parseHighlights,

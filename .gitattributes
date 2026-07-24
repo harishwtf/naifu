@@ -1,0 +1,4 @@
+# Shell scripts must keep LF endings or they won't run on macOS/Linux
+# (a CRLF in the shebang line breaks execution).
+*.command  text eol=lf
+*.sh       text eol=lf

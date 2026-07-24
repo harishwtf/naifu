@@ -268,21 +268,26 @@
     if (st && st.reject) { st.reject(new Error("Cancelled.")); }
   });
 
+  // Cross-platform paths: Node accepts forward slashes on both Windows and macOS,
+  // so we normalise to "/" and only vary the ".exe" suffix (and a couple of binary
+  // sub-paths) per OS. Mac binaries go in the same bin/ layout — see README.
+  function isMac() {
+    try { return cs.getOSInformation().indexOf("Mac") >= 0; } catch (e) { return false; }
+  }
   function extRoot() {
-    return cs.getSystemPath(SystemPath.EXTENSION).replace(/[\\/]+$/, "");
+    return cs.getSystemPath(SystemPath.EXTENSION).replace(/[\\/]+$/, "").replace(/\\/g, "/");
   }
-  function ffmpegPath() {
-    return extRoot() + "\\bin\\ffmpeg.exe";
-  }
+  function binPath(rel) { return extRoot() + "/bin/" + rel; }
+  function ffmpegPath() { return binPath(isMac() ? "ffmpeg" : "ffmpeg.exe"); }
   function whisperPath() {
-    return extRoot() + "\\bin\\Faster-Whisper-XXL\\faster-whisper-xxl.exe";
+    // Windows: Purfview Faster-Whisper-XXL. macOS: place a compatible faster-whisper
+    // binary here (same CLI flags) — adjust the name if your build differs.
+    return binPath(isMac()
+      ? "Faster-Whisper-XXL/whisper-faster"
+      : "Faster-Whisper-XXL/faster-whisper-xxl.exe");
   }
-  function ollamaExe() {
-    return extRoot() + "\\bin\\ollama\\ollama.exe";
-  }
-  function ollamaModelsDir() {
-    return extRoot() + "\\bin\\ollama-models";
-  }
+  function ollamaExe() { return binPath(isMac() ? "ollama/ollama" : "ollama/ollama.exe"); }
+  function ollamaModelsDir() { return binPath("ollama-models"); }
   var LLM_MODEL = "qwen2.5:7b";
 
   function bindDrawer(settingsEl, toggleEl) {
@@ -2488,6 +2493,14 @@
   stLoad();
   brainInit();
   contextInit();
+  // First-run model download: when a local scan needs qwen and it isn't installed,
+  // Ollama fetches it once; show the progress so a big one-time download is clear.
+  QCAi.onPullProgress(function (status, pct) {
+    var msg = "First-time setup: downloading the local AI model (one time, ~4.7 GB)";
+    if (pct != null) { msg += " — " + pct + "%"; }
+    else if (status) { msg += " — " + status; }
+    setStatus(msg + "…", "busy");
+  });
   refreshActiveName();
   host("ping()").then(function (res) {
     if (!res.ok) {
@@ -2502,7 +2515,8 @@
     }
     setStatus("Ready — connected to " + (res.app || "Premiere") + ". Open a sequence to begin.");
     // Warm the local model in the background so the first local-AI call (Speaker,
-    // Cleanup, etc.) is instant instead of waiting on a cold model load.
+    // Cleanup, etc.) is instant instead of waiting on a cold model load. (No-op if
+    // the model isn't downloaded yet — that's fetched on first actual use.)
     QCAi.preloadModel({ ollamaExe: ollamaExe(), modelsDir: ollamaModelsDir(), model: LLM_MODEL });
   });
 })();

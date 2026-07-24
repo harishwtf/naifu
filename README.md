@@ -56,6 +56,24 @@ You don't need to install Node or Python for Phase 0 — Premiere hosts the pane
 The setup script also downloads **FFmpeg** into `bin/` (used from Phase 1 on).
 No system install or PATH change — it's self-contained.
 
+## Install (macOS, one time)
+
+The panel code is cross-platform — binary paths auto-switch on OS (`isMac()` in
+`js/main.js`; Node takes forward slashes on both, `.exe` only on Windows). Run the
+mac setup, which mirrors `setup.ps1`:
+
+```bash
+bash setup.command          # or double-click it in Finder;  --uninstall to undo
+```
+
+It enables CEP debug mode (`defaults write com.adobe.CSXS.N PlayerDebugMode 1`),
+symlinks the folder into `~/Library/Application Support/Adobe/CEP/extensions/…`, and
+downloads a macOS FFmpeg build into `bin/`. You still need to drop macOS builds of the
+two AI **engine binaries** into `bin/` (Whisper at `bin/Faster-Whisper-XXL/whisper-faster`
+— adjust `whisperPath()` if your build differs — and Ollama at `bin/ollama/ollama`); the
+big **model weights are not bundled** and download on first use (see the Local brain note).
+*(macOS path/setup is untested on a Mac — please verify and report anything off.)*
+
 ### Test Phase 1 (silence removal)
 
 1. Open a project with a talking-head sequence in the Timeline.
@@ -218,9 +236,12 @@ setup.ps1             install / uninstall developer setup (+ FFmpeg download)
 - [x] **Phase 3** — filler + repetition removal (local Whisper word timestamps → review → cut).
 - [ ] **Phase 4** — Highlights / "best parts" (transcript → AI judges content → review). In testing.
   - Brains (selectable in Highlights + Zoom settings; shared):
-    - **Local (qwen2.5)** — free, offline, automatic. **Preloaded on panel open**
-      (`QCAi.preloadModel` warms it into memory with a 30-min keep-alive) so the first local
-      call is instant instead of paying a cold model load.
+    - **Local (qwen2.5)** — free, offline, automatic. **Downloaded on demand** — the model
+      weights are NOT bundled; the first time you run a local-AI feature, Ollama pulls
+      qwen2.5:7b (~4.7 GB, one time) via `QCAi.runLocal` → `pullModel`, with live progress in
+      the status bar (`onPullProgress`). Once present it's **preloaded on panel open**
+      (`preloadModel`, 30-min keep-alive) so calls are instant. Only the ~small Ollama binary
+      needs to ship in `bin/`.
     - **Claude (manual · claude.ai)** — real Claude on your Max plan, no API key: panel
       builds the prompt, you copy it into claude.ai and paste the reply back. Same model
       quality; two copy-pastes per run. Best for Highlights / Vox Pop.
