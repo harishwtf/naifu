@@ -115,8 +115,8 @@ builds so the remote debugger isn't left open.
 
 ## The engine store — downloaded once, never again
 
-The engines (FFmpeg, Whisper, Ollama) are ~3 GB and can't live inside a signed
-ZXP, so `js/engines.js` keeps them **outside the extension folder**:
+The engines can't live inside a signed ZXP, so `js/engines.js` keeps them
+**outside the extension folder**:
 
 ```
 Windows   %APPDATA%\Naifu\engines\
@@ -138,7 +138,22 @@ install-present, dev-checkout, post-reinstall and adopt scenarios.
 Resolution order is `bin/` in the checkout **first**, then the persistent store — so
 an existing dev setup with 13 GB in `bin/` keeps working and downloads nothing.
 
-The **Setup tab** lists each engine (present / missing, size, and what it's for),
+**Actual footprint** (measured, not estimated — download vs. what lands on disk):
+
+| | Download | On disk | Notes |
+|---|---|---|---|
+| FFmpeg | 90 MB | 0.18 GB | |
+| Whisper | 1.36 GB `.7z` | **6.4 GB** | unpacks to ~4.4 GB of CUDA/runtime, **plus ~2 GB of speech models it fetches itself** on first transcribe |
+| Ollama | 1.39 GB | 1.8 GB | |
+| qwen weights | 4.36 GB | 4.36 GB | pulled on first use of the local brain |
+| **Total** | **~2.8 GB up front** | **~12.8 GB** | the rest arrives lazily, as you use each feature |
+
+Using **Claude (manual)** instead of the local brain skips Ollama *and* qwen —
+about 6 GB saved. Every lazy download lands in the same persistent store, so those
+are one-time too.
+
+The **Setup tab** lists each engine (present / missing, download *and* on-disk size,
+what it's for, and what it'll fetch later),
 downloads only what's missing on an explicit click, and unpacks everything with
 `bsdtar`/libarchive — one code path for `.zip`, `.tar.gz` *and* the `.7z` Whisper
 ships as. On macOS every installed binary is `xattr -cr` + ad-hoc `codesign`ed, or

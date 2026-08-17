@@ -2630,8 +2630,20 @@
 
       var why = document.createElement("div");
       why.className = "ctx"; why.style.marginTop = "3px";
-      why.textContent = s.ok ? s.path : (s.why + " (" + enFmtSize(s.sizeMb) + " download)");
+      why.textContent = s.ok ? s.path : s.why;
       mid.appendChild(why);
+
+      // Download size and installed size differ a lot (Whisper is a 1.4 GB
+      // archive that unpacks to ~4.4 GB), and some engines fetch more on first
+      // real use — say all of it rather than quoting the flattering number.
+      if (!s.ok) {
+        var sizes = document.createElement("div");
+        sizes.className = "ctx"; sizes.style.marginTop = "2px";
+        var txt = enFmtSize(s.sizeMb) + " download · " + enFmtSize(s.diskMb) + " on disk";
+        if (s.lazyNote) { txt += " · then " + s.lazyNote; }
+        sizes.textContent = txt;
+        mid.appendChild(sizes);
+      }
 
       var meta = document.createElement("span");
       meta.className = "meta";

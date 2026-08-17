@@ -901,6 +901,11 @@
         Naifu needs a few engines to do its work. They're downloaded <b>once</b> and kept outside
         the extension folder, so updating Naifu never re-downloads them — and normal use never
         touches the network for them again.
+        <br /><br />
+        Budget <b>~13 GB of disk</b> if you use everything: ~2.8 GB downloads here, and the rest
+        arrives the first time you actually transcribe (Whisper's speech models) or run the local
+        brain (the qwen model). Both land in the same folder below, so they're one-time too.
+        Using Claude (manual) instead of the local brain saves ~6 GB — skip Ollama entirely.
       </div>
 
       <div class="cut-list" id="enList" style="max-height:340px;"></div>

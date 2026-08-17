@@ -55,6 +55,7 @@ var QCEngines = (function () {
         binName: mac ? "ffmpeg" : "ffmpeg.exe",
         multi: false,                       // a single self-contained binary
         sizeMb: mac ? 30 : 90,
+        diskMb: mac ? 80 : 180,
         url: mac
           ? ("https://ffmpeg.martin-riedl.de/redirect/latest/macos/" + (arm ? "arm64" : "amd64") + "/release/ffmpeg.zip")
           : "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
@@ -66,6 +67,11 @@ var QCEngines = (function () {
         binName: mac ? "whisper-faster" : "faster-whisper-xxl.exe",
         multi: true,                        // ships as a folder of DLLs/libs
         sizeMb: mac ? 78 : 1358,
+        // Unpacks to ~4.4 GB of CUDA/runtime, then pulls its own speech models
+        // (~2 GB across the three quality settings) the first time you transcribe.
+        diskMb: mac ? 200 : 4400,
+        lazyMb: 2000,
+        lazyNote: "downloads its speech models (~2 GB) the first time you transcribe",
         url: mac
           // Purfview publishes no current macOS build; this is the last one they
           // shipped (2023, Intel — runs under Rosetta 2 on Apple Silicon).
@@ -80,6 +86,9 @@ var QCEngines = (function () {
         binName: mac ? "ollama" : "ollama.exe",
         multi: true,
         sizeMb: mac ? 146 : (arm ? 200 : 1392),
+        diskMb: mac ? 190 : (arm ? 260 : 1820),
+        lazyMb: 4400,
+        lazyNote: "pulls the qwen model (~4.4 GB) the first time you use the local brain",
         url: mac
           ? "https://github.com/ollama/ollama/releases/latest/download/ollama-darwin.tgz"
           : ("https://github.com/ollama/ollama/releases/latest/download/ollama-windows-" + (arm ? "arm64" : "amd64") + ".zip"),
@@ -123,6 +132,8 @@ var QCEngines = (function () {
       var p = pathFor(k);
       out.push({
         name: k, label: d[k].label, why: d[k].why, sizeMb: d[k].sizeMb,
+        diskMb: d[k].diskMb || d[k].sizeMb, lazyMb: d[k].lazyMb || 0,
+        lazyNote: d[k].lazyNote || "",
         optional: !!d[k].optional, legacy: !!d[k].legacy,
         ok: exists(p), path: p,
         inRepo: exists(p) && p.indexOf(join(cfg.extRoot, "bin")) === 0
