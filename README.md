@@ -72,7 +72,28 @@ downloads a macOS FFmpeg build into `bin/`. You still need to drop macOS builds 
 two AI **engine binaries** into `bin/` (Whisper at `bin/Faster-Whisper-XXL/whisper-faster`
 — adjust `whisperPath()` if your build differs — and Ollama at `bin/ollama/ollama`); the
 big **model weights are not bundled** and download on first use (see the Local brain note).
-*(macOS path/setup is untested on a Mac — please verify and report anything off.)*
+
+Two macOS-specific things the script handles for you:
+
+- **CPU architecture.** It reads `uname -m` and fetches the matching FFmpeg —
+  `arm64` for Apple Silicon, `amd64` for Intel — from martin-riedl.de, which
+  publishes both behind a stable "latest" URL. (evermeet.cx, the usual source, is
+  **Intel-only** and has said it won't ship ARM builds; on an M-series Mac that
+  binary only runs if Rosetta 2 happens to be installed.) Whisper and Ollama
+  builds you supply must match your CPU too.
+- **Gatekeeper.** Unsigned binaries are killed on sight on Apple Silicon, so
+  setup runs `xattr -cr` + `codesign -s -` (ad-hoc sign) on the FFmpeg it
+  downloads *and* on any Whisper/Ollama binary it finds in `bin/`. If you add
+  those binaries after running setup, just run setup again to clear them.
+
+*(macOS setup is written but not yet verified on real hardware — please report anything off.)*
+
+**This is not a `.zxp`.** A ZXP is a *signed, packaged* CEP extension you'd install
+with the [aescripts ZXP Installer](https://aescripts.com/learn/post/zxp-installer);
+Premiere 23+ (CEP 11) refuses unsigned extensions unless `PlayerDebugMode` is on,
+which is exactly what the setup scripts enable. Packaging and signing a real ZXP
+(`ZXPSignCmd`) is still on the roadmap — it also needs a first-run downloader for
+the engine binaries, since `bin/` is ~13 GB and can't ship inside a ZXP.
 
 ### Test Phase 1 (silence removal)
 
