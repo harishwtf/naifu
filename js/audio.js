@@ -43,6 +43,48 @@ var QCAudio = (function () {
   }
 
   /**
+   * Environment for the Whisper child process.
+   *
+   * Premiere's CEP host can hand a child an environment where HOME is "/" (or
+   * missing entirely). Whisper caches its model download under $HOME/.cache, so
+   * that becomes "//.cache" — the read-only filesystem root — and it dies with
+   * "OSError: [Errno 30] Read-only file system: '//.cache'" the first time it
+   * tries to fetch a speech model.
+   *
+   * So: repair HOME, and point the caches at a writable folder beside the
+   * binary. That folder lives in the persistent engine store, so a downloaded
+   * speech model survives a Naifu update like everything else.
+   */
+  function whisperEnv(whisperPath) {
+    var env = {};
+    try {
+      for (var k in process.env) {
+        if (Object.prototype.hasOwnProperty.call(process.env, k)) { env[k] = process.env[k]; }
+      }
+    } catch (e) {}
+
+    var home = env.HOME;
+    if (!home || home === "/" || home === "//") {
+      try { home = nodeRequire("os").homedir(); } catch (e2) { home = ""; }
+      if ((!home || home === "/") && env.USER) { home = "/Users/" + env.USER; }
+      if (home && home !== "/") { env.HOME = home; }
+    }
+
+    var dir = String(whisperPath || "").replace(/[\\/][^\\/]+$/, "");
+    if (dir) {
+      var cache = dir + "/_cache";
+      try {
+        var fs = nodeRequire("fs");
+        fs.mkdirSync(cache + "/huggingface", { recursive: true });
+        env.XDG_CACHE_HOME = cache;
+        env.HF_HOME = cache + "/huggingface";
+        env.HUGGINGFACE_HUB_CACHE = cache + "/huggingface";
+      } catch (e3) {}
+    }
+    return env;
+  }
+
+  /**
    * Turn a failed child process into a message that says what actually went
    * wrong. Without this, every engine failure ends up reported as "no speech
    * found", which sends people hunting for an audio problem that isn't there.
@@ -458,7 +500,7 @@ var QCAudio = (function () {
     var jsonPath = String(outDir).replace(/[\\/]+$/, "") + "/" + base + ".json";
     return new Promise(function (resolve, reject) {
       // No timeout: first run downloads the speech model and can take a while.
-      runProc(whisperPath, args, { maxBuffer: 1024 * 1024 * 64 }, function (err, stdout, stderr) {
+      runProc(whisperPath, args, { maxBuffer: 1024 * 1024 * 64, env: whisperEnv(whisperPath) }, function (err, stdout, stderr) {
         if (err && err.code === "ENOENT") { reject(binMissing("whisper")); return; }
         var wrote = false;
         try { wrote = fs.statSync(jsonPath).size > 0; } catch (e) {}
@@ -475,10 +517,12 @@ var QCAudio = (function () {
    * Beats discovering it as a vague failure halfway through a transcription.
    */
   function testEngines(cfg) {
-    function probe(label, exe, args) {
+    function probe(label, exe, args, env) {
       return new Promise(function (resolve) {
         if (!exe) { resolve({ label: label, ok: false, detail: "No path configured." }); return; }
-        runProc(exe, args, { maxBuffer: 1024 * 1024 * 8, timeout: 60000 }, function (err, stdout, stderr) {
+        var opts = { maxBuffer: 1024 * 1024 * 8, timeout: 60000 };
+        if (env) { opts.env = env; }
+        runProc(exe, args, opts, function (err, stdout, stderr) {
           var out = ((stdout || "") + "\n" + (stderr || "")).trim();
           if (err && err.code === "ENOENT") {
             resolve({ label: label, ok: false, detail: "Not found at " + exe });
@@ -495,7 +539,7 @@ var QCAudio = (function () {
     }
     return Promise.all([
       probe("FFmpeg", cfg.ffmpegPath, ["-version"]),
-      probe("Whisper", cfg.whisperPath, ["--help"])
+      probe("Whisper", cfg.whisperPath, ["--help"], whisperEnv(cfg.whisperPath))
     ]);
   }
 
@@ -923,6 +967,7 @@ var QCAudio = (function () {
     // Exposed so the engine-failure paths can be exercised directly.
     extractWav: extractWav,
     runWhisper: runWhisper,
+    whisperEnv: whisperEnv,
     detectFillers: detectFillers,
     detectRepetitions: detectRepetitions,
     mergeSelectedRanges: mergeSelectedRanges,

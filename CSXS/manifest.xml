@@ -5,12 +5,12 @@
 -->
 <ExtensionManifest Version="7.0"
                    ExtensionBundleId="com.naifu.panel"
-                   ExtensionBundleVersion="0.2.3"
+                   ExtensionBundleVersion="0.2.4"
                    ExtensionBundleName="Naifu"
                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
 
   <ExtensionList>
-    <Extension Id="com.naifu.panel.main" Version="0.2.3" />
+    <Extension Id="com.naifu.panel.main" Version="0.2.4" />
   </ExtensionList>
 
   <ExecutionEnvironment>
