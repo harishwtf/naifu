@@ -21,6 +21,12 @@
     Requires ZXPSignCmd from Adobe:
       https://github.com/Adobe-CEP/CEP-Resources/tree/master/ZXPSignCMD
     Put it next to this script, or pass -SignCmd <path>.
+
+    Note on builds: 4.1.103 (the newest) crashes with ACCESS_VIOLATION whenever
+    -tsa is used, against every timestamp server tested; 4.1.3 timestamps fine.
+    This script tries to timestamp and falls back to an untimestamped signature,
+    so either build works - but use 4.1.3/x64 if you want the timestamp, which
+    keeps the signature valid after the certificate expires.
 #>
 [CmdletBinding()]
 param(
@@ -28,7 +34,8 @@ param(
     [string]$Cert = "",
     [string]$CertPassword = "",
     [string]$SignCmd = "",
-    [string]$OutDir = "dist"
+    [string]$OutDir = "dist",
+    [string]$Tsa = "http://timestamp.digicert.com"
 )
 
 $ErrorActionPreference = "Stop"
@@ -111,11 +118,29 @@ New-Item -ItemType Directory -Path $outPath -Force | Out-Null
 $zxp = Join-Path $outPath "Naifu.zxp"
 if (Test-Path $zxp) { Remove-Item $zxp -Force }
 
-Write-Host "  Signing..."
-& $Signer -sign $Staging $zxp $Cert $CertPassword -tsa "http://timestamp.digicert.com"
-if ($LASTEXITCODE -ne 0) { throw "Signing failed." }
+# Timestamping keeps the signature valid past the certificate's expiry, so we
+# try it first. But ZXPSignCmd 4.1.103 ACCESS_VIOLATIONs on -tsa with every
+# timestamp server tested, while 4.1.3 handles it fine — so fall back to an
+# untimestamped signature rather than failing the build on a broken flag.
+$timestamped = $false
+if ($Tsa) {
+    Write-Host "  Signing (timestamping via $Tsa)..."
+    & $Signer -sign $Staging $zxp $Cert $CertPassword -tsa $Tsa 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0 -and (Test-Path $zxp)) {
+        $timestamped = $true
+    } else {
+        Write-Warning "  Timestamping failed (exit $LASTEXITCODE) - this build of ZXPSignCmd is known to crash on -tsa. Signing without it."
+        if (Test-Path $zxp) { Remove-Item $zxp -Force }
+    }
+}
+if (-not $timestamped) {
+    Write-Host "  Signing (no timestamp)..."
+    & $Signer -sign $Staging $zxp $Cert $CertPassword
+    if ($LASTEXITCODE -ne 0) { throw "Signing failed (exit $LASTEXITCODE)." }
+}
 
 & $Signer -verify $zxp -certinfo | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "The signed package failed verification." }
 Remove-Item $Staging -Recurse -Force
 
 $size = (Get-Item $zxp).Length
@@ -127,9 +152,10 @@ Install it with the aescripts ZXP Installer (Windows or macOS):
   https://aescripts.com/learn/zxp-installer/
 Drag Naifu.zxp onto it, restart Premiere, then Window > Extensions > Naifu.
 
-First launch opens the Setup tab and fetches the engines (FFmpeg, Whisper,
-optionally Ollama) into the user's AppData / Application Support - once, not
-per use, and not wiped by a future Naifu update.
+First launch opens the Setup tab and fetches the engines (FFmpeg + Whisper,
+~1.4 GB) into the user's AppData / Application Support - once, not per use, and
+not wiped by a future Naifu update. There is no local AI model: both brains are
+Claude (manual paste, or an API key).
 
 A self-signed build shows an "unknown publisher" warning in the installer.
 That's expected; use a real CA certificate for public distribution.
