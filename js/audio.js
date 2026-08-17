@@ -30,12 +30,64 @@ var QCAudio = (function () {
     return new Error(MISSING_HELP[kind] || (kind + " is missing."));
   }
 
+  /**
+   * execFile can fail two ways: an error handed to the callback, or a
+   * SYNCHRONOUS throw (spawn EINVAL / UNKNOWN) when the target isn't a runnable
+   * executable at all — which is exactly what a corrupt or Gatekeeper-blocked
+   * binary does. Funnel both into the callback so one error path covers it.
+   */
+  function runProc(exe, args, opts, cb) {
+    var execFile = nodeRequire("child_process").execFile;
+    try { execFile(exe, args, opts, cb); }
+    catch (e) { cb(e, "", ""); }
+  }
+
+  /**
+   * Turn a failed child process into a message that says what actually went
+   * wrong. Without this, every engine failure ends up reported as "no speech
+   * found", which sends people hunting for an audio problem that isn't there.
+   * The macOS cases (wrong CPU architecture, Gatekeeper, non-executable) are
+   * called out by name because they're the common ones and their raw errors
+   * are cryptic.
+   */
+  function procError(label, exe, err, stderr) {
+    var tail = String(stderr || "").trim().split("\n").slice(-6).join("\n").slice(-600);
+    var msg;
+
+    // Windows reports exit codes as unsigned; -2 arrives as 4294967294.
+    var code = (err && typeof err.code === "number") ? err.code : null;
+    if (code !== null && code > 2147483647) { code -= 4294967296; }
+
+    if (err && (err.code === "EINVAL" || err.code === "UNKNOWN" || err.code === "ENOEXEC")) {
+      msg = label + " couldn't be launched — the file is there but the system refused to run it. " +
+        "It may be damaged, blocked, or built for a different platform. On macOS try:  " +
+        "xattr -cr \"" + exe + "\" && codesign -s - \"" + exe + "\"  — otherwise delete it and let the " +
+        "Setup tab download it again.";
+    } else if (err && err.code === "EACCES") {
+      msg = label + " isn't executable. On macOS run:  chmod +x \"" + exe + "\"  then clear Gatekeeper with:  " +
+        "xattr -cr \"" + exe + "\" && codesign -s - \"" + exe + "\"";
+    } else if (err && (err.code === "EBADARCH" || /bad cpu type/i.test(tail))) {
+      msg = label + " is built for a different CPU than this Mac. If it's an Intel build on Apple Silicon, " +
+        "install Rosetta 2:  softwareupdate --install-rosetta --agree-to-license";
+    } else if (err && (err.signal === "SIGKILL" || err.signal === "SIGABRT")) {
+      msg = label + " was killed on launch (" + err.signal + ") — usually macOS Gatekeeper blocking an unsigned " +
+        "binary. Fix with:  xattr -cr \"" + exe + "\" && codesign -s - \"" + exe + "\"";
+    } else if (code !== null) {
+      msg = label + " failed (exit code " + code + ").";
+    } else if (err) {
+      msg = label + " failed to run: " + (err.message || String(err));
+    } else {
+      msg = label + " produced no usable output.";
+    }
+    if (tail) { msg += "\n\n" + label + " said:\n" + tail; }
+    return new Error(msg);
+  }
+
   /** Run ffmpeg once and hand back its stderr (silencedetect writes there). */
   function runFfmpeg(ffmpegPath, args) {
     return new Promise(function (resolve, reject) {
-      var execFile = nodeRequire("child_process").execFile;
       // silencedetect output can be long; give it room.
-      execFile(ffmpegPath, args, { maxBuffer: 1024 * 1024 * 64 }, function (err, stdout, stderr) {
+      runProc(ffmpegPath, args, { maxBuffer: 1024 * 1024 * 64 }, function (err, stdout, stderr) {
         // ffmpeg exits 0 here and prints analysis to stderr. A real spawn error
         // (e.g. binary missing) shows up as `err.code === 'ENOENT'`.
         if (err && err.code === "ENOENT") { reject(binMissing("ffmpeg")); return; }
@@ -369,29 +421,82 @@ var QCAudio = (function () {
       "-vn", "-ac", "1", "-ar", "16000", outWav
     ];
     return new Promise(function (resolve, reject) {
-      var execFile = nodeRequire("child_process").execFile;
-      execFile(ffmpegPath, args, { maxBuffer: 1024 * 1024 * 16 }, function (err) {
+      var fs = nodeRequire("fs");
+      runProc(ffmpegPath, args, { maxBuffer: 1024 * 1024 * 16 }, function (err, stdout, stderr) {
         if (err && err.code === "ENOENT") { reject(binMissing("ffmpeg")); return; }
+        if (err) { reject(procError("FFmpeg", ffmpegPath, err, stderr)); return; }
+        // FFmpeg can exit 0 having written nothing — offline/unreadable media, or
+        // a clip with no audio track. Catch it here instead of letting it surface
+        // later as the misleading "no speech found".
+        var size = 0;
+        try { size = fs.statSync(outWav).size; } catch (e) {}
+        if (size < 1024) {
+          reject(new Error("FFmpeg read no audio from this clip — check the media is online and has an audio " +
+            "track.\n" + (clip.mediaPath || "(no media path)")));
+          return;
+        }
         resolve(outWav);
       });
     });
   }
 
-  /** Run the standalone Whisper on a WAV, producing <name>.json in outDir. */
+  /**
+   * Run the standalone Whisper on a WAV, producing <name>.json in outDir.
+   *
+   * Verifies the JSON actually landed. Whisper exits non-zero on harmless
+   * warnings so the exit code alone can't be trusted — but "no JSON on disk"
+   * always means the engine failed, and that must never be reported as silence.
+   */
   function runWhisper(whisperPath, wavPath, model, outDir) {
     var args = [
       wavPath, "-m", model, "-l", "en",
       "--output_format", "json", "--output_dir", outDir,
       "--word_timestamps", "True"
     ];
+    var fs = nodeRequire("fs");
+    var base = String(wavPath).split(/[\\/]/).pop().replace(/\.wav$/i, "");
+    var jsonPath = String(outDir).replace(/[\\/]+$/, "") + "/" + base + ".json";
     return new Promise(function (resolve, reject) {
-      var execFile = nodeRequire("child_process").execFile;
-      // No timeout: first run downloads the model and can take a while.
-      execFile(whisperPath, args, { maxBuffer: 1024 * 1024 * 64 }, function (err) {
+      // No timeout: first run downloads the speech model and can take a while.
+      runProc(whisperPath, args, { maxBuffer: 1024 * 1024 * 64 }, function (err, stdout, stderr) {
         if (err && err.code === "ENOENT") { reject(binMissing("whisper")); return; }
-        resolve(); // Whisper may exit non-zero on warnings; we check for the JSON next.
+        var wrote = false;
+        try { wrote = fs.statSync(jsonPath).size > 0; } catch (e) {}
+        if (wrote) { resolve(jsonPath); return; }
+        reject(procError("The speech engine (Whisper)", whisperPath, err,
+          (stderr || "") + "\n" + (stdout || "")));
       });
     });
+  }
+
+  /**
+   * Launch each engine with a harmless flag to prove it can actually run, and
+   * report the real reason if it can't (Rosetta, Gatekeeper, permissions).
+   * Beats discovering it as a vague failure halfway through a transcription.
+   */
+  function testEngines(cfg) {
+    function probe(label, exe, args) {
+      return new Promise(function (resolve) {
+        if (!exe) { resolve({ label: label, ok: false, detail: "No path configured." }); return; }
+        runProc(exe, args, { maxBuffer: 1024 * 1024 * 8, timeout: 60000 }, function (err, stdout, stderr) {
+          var out = ((stdout || "") + "\n" + (stderr || "")).trim();
+          if (err && err.code === "ENOENT") {
+            resolve({ label: label, ok: false, detail: "Not found at " + exe });
+            return;
+          }
+          // Any banner at all means it launched — exit code doesn't matter here.
+          if (out) {
+            resolve({ label: label, ok: true, detail: out.split("\n")[0].slice(0, 140) });
+            return;
+          }
+          resolve({ label: label, ok: false, detail: procError(label, exe, err, stderr).message });
+        });
+      });
+    }
+    return Promise.all([
+      probe("FFmpeg", cfg.ffmpegPath, ["-version"]),
+      probe("Whisper", cfg.whisperPath, ["--help"])
+    ]);
   }
 
   /**
@@ -814,6 +919,10 @@ var QCAudio = (function () {
     transcribeSegments: transcribeSegments,
     transcribePerClip: transcribePerClip,
     transcribeBoth: transcribeBoth,
+    testEngines: testEngines,
+    // Exposed so the engine-failure paths can be exercised directly.
+    extractWav: extractWav,
+    runWhisper: runWhisper,
     detectFillers: detectFillers,
     detectRepetitions: detectRepetitions,
     mergeSelectedRanges: mergeSelectedRanges,

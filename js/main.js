@@ -30,6 +30,10 @@
 
   // The editing engine (jsx/host.jsx) didn't load, or a call hit a function
   // that isn't there — almost always fixed by reloading the panel.
+  // A transcript came back empty. That is sometimes true silence, but it is also
+  // what a blocked or wrong-architecture engine looks like — point at the test.
+  var NO_SPEECH_HINT = " The engine ran but returned nothing. If you can hear speech in the clip, open the Setup tab and click Test engines.";
+
   var RELOAD_HINT = "Couldn't reach the editing engine. Reload the panel (close Naifu and reopen it from Window → Extensions), and make sure a project is open.";
 
   function parseHostResult(raw) {
@@ -690,7 +694,7 @@
         return QCAudio.transcribeSegments({
           whisperPath: whisperPath(), ffmpegPath: ffmpegPath(), clips: res.clips, model: "small.en"
         }).then(function (segs) {
-          if (!segs || segs.length === 0) { throw new Error("No speech found to analyze."); }
+          if (!segs || segs.length === 0) { throw new Error("No speech found to analyze." + NO_SPEECH_HINT); }
           var bz = brainGet();
           var count = cfg.sensitivity === "high" ? 10 : (cfg.sensitivity === "low" ? 4 : 6);
           if (bz.brain === "manual") {
@@ -1229,7 +1233,7 @@
         onProgress: transcribeProgress("Transcribing")
       });
     }).then(function (segments) {
-      if (!segments || segments.length === 0) { throw new Error("No speech found to analyze."); }
+      if (!segments || segments.length === 0) { throw new Error("No speech found to analyze." + NO_SPEECH_HINT); }
       var b = brainGet();
       hi.manual = null;
       if (b.brain === "manual") {
@@ -1375,7 +1379,7 @@
         onProgress: transcribeProgress("Transcribing")
       });
     }).then(function (segments) {
-      if (!segments || segments.length === 0) { throw new Error("No speech found to analyze."); }
+      if (!segments || segments.length === 0) { throw new Error("No speech found to analyze." + NO_SPEECH_HINT); }
       var b = brainGet();
       cl.manual = null;
       if (b.brain === "manual") {
@@ -2074,7 +2078,7 @@
       });
     }).then(function (perClip) {
       var usable = perClip.filter(function (c) { return c.words && c.words.length > 0; });
-      if (usable.length === 0) { throw new Error("No speech found to build a story from."); }
+      if (usable.length === 0) { throw new Error("No speech found to build a story from." + NO_SPEECH_HINT); }
       return stBrainExtract(usable);
     }).then(function (items) {
       stEls.scanBtn.disabled = false;
@@ -2238,7 +2242,7 @@
       });
     }).then(function (words) {
       capEls.scanBtn.disabled = false;
-      if (!words || !words.length) { setStatus("No speech found to caption.", "ok"); return; }
+      if (!words || !words.length) { setStatus("No speech found to caption." + NO_SPEECH_HINT, "err"); return; }
       cap.words = words;
       cap.lines = QCCaptions.groupWordsToLines(words, { maxWords: parseInt(capEls.words.value, 10) || 4 });
       capRender();
@@ -2509,7 +2513,7 @@
       });
     }).then(function (perClip) {
       var usable = perClip.filter(function (c) { return c.words && c.words.length > 0; });
-      if (usable.length === 0) { throw new Error("No speech found in these clips."); }
+      if (usable.length === 0) { throw new Error("No speech found in these clips." + NO_SPEECH_HINT); }
       return hkExtract(usable);
     }).then(function (items) {
       hkEls.scanBtn.disabled = false;
@@ -2581,6 +2585,8 @@
     list: document.getElementById("enList"),
     installBtn: document.getElementById("enInstallBtn"),
     recheckBtn: document.getElementById("enRecheckBtn"),
+    testBtn: document.getElementById("enTestBtn"),
+    testOut: document.getElementById("enTestOut"),
     where: document.getElementById("enWhere"),
     hint: document.getElementById("enHint")
   };
@@ -2696,6 +2702,30 @@
       }
     });
   }
+
+  // Actually launch each engine. "Installed" only means the file is on disk —
+  // it can still be blocked by Gatekeeper or built for the wrong CPU, which is
+  // what turns into a mystery failure mid-transcription.
+  function enTest() {
+    enEls.testBtn.disabled = true;
+    enEls.testOut.textContent = "";
+    setStatus("Launching each engine to see if it actually runs…", "busy");
+    QCAudio.testEngines({ ffmpegPath: ffmpegPath(), whisperPath: whisperPath() })
+      .then(function (results) {
+        enEls.testBtn.disabled = false;
+        var lines = results.map(function (r) { return (r.ok ? "✓ " : "✗ ") + r.label + " — " + r.detail; });
+        enEls.testOut.textContent = lines.join("\n\n");
+        var bad = results.filter(function (r) { return !r.ok; });
+        setStatus(bad.length
+          ? bad.length + " engine(s) can't run — details below."
+          : "Both engines launch fine.", bad.length ? "err" : "ok");
+      })
+      .catch(function (err) {
+        enEls.testBtn.disabled = false;
+        setStatus(err.message || String(err), "err");
+      });
+  }
+  if (enEls.testBtn) { enEls.testBtn.addEventListener("click", enTest); }
 
   if (enEls.installBtn) { enEls.installBtn.addEventListener("click", enInstallAll); }
   if (enEls.recheckBtn) {
@@ -2862,7 +2892,7 @@
         whisperPath: whisperPath(), ffmpegPath: ffmpegPath(),
         clips: clips, model: quality, onProgress: transcribeProgress("Transcribing")
       }).then(function (allSegs) {
-        if (!allSegs || allSegs.length === 0) { throw new Error("No speech found to analyze."); }
+        if (!allSegs || allSegs.length === 0) { throw new Error("No speech found to analyze." + NO_SPEECH_HINT); }
         return spExtract(allSegs);
       }).then(function (people2) {
         spEls.scanBtn.disabled = false;
