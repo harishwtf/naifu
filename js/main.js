@@ -278,16 +278,26 @@
     return cs.getSystemPath(SystemPath.EXTENSION).replace(/[\\/]+$/, "").replace(/\\/g, "/");
   }
   function binPath(rel) { return extRoot() + "/bin/" + rel; }
-  function ffmpegPath() { return binPath(isMac() ? "ffmpeg" : "ffmpeg.exe"); }
-  function whisperPath() {
-    // Windows: Purfview Faster-Whisper-XXL. macOS: place a compatible faster-whisper
-    // binary here (same CLI flags) — adjust the name if your build differs.
-    return binPath(isMac()
-      ? "Faster-Whisper-XXL/whisper-faster"
-      : "Faster-Whisper-XXL/faster-whisper-xxl.exe");
+  // Is this an ARM machine (Apple Silicon / Windows on ARM)? Picks the right build.
+  function isArm() {
+    try {
+      if (typeof process !== "undefined" && process.arch) { return /arm/i.test(process.arch); }
+    } catch (e) {}
+    return false;
   }
-  function ollamaExe() { return binPath(isMac() ? "ollama/ollama" : "ollama/ollama.exe"); }
-  function ollamaModelsDir() { return binPath("ollama-models"); }
+  // Engines live outside the extension folder so updating Naifu never costs
+  // another multi-GB download; a repo bin/ (dev checkout) still wins if present.
+  function userRoot() {
+    var base = "";
+    try { base = cs.getSystemPath(SystemPath.USER_DATA); } catch (e) {}
+    return String(base || "").replace(/[\\/]+$/, "").replace(/\\/g, "/") + "/Naifu/engines";
+  }
+  QCEngines.configure({ extRoot: extRoot(), userRoot: userRoot(), isMac: isMac(), arm: isArm() });
+
+  function ffmpegPath() { return QCEngines.pathFor("ffmpeg"); }
+  function whisperPath() { return QCEngines.pathFor("whisper"); }
+  function ollamaExe() { return QCEngines.pathFor("ollama"); }
+  function ollamaModelsDir() { return QCEngines.modelsDir(); }
   var LLM_MODEL = "qwen2.5:7b";
 
   function bindDrawer(settingsEl, toggleEl) {
@@ -381,6 +391,7 @@
     voxpop: document.getElementById("voxpopPanel"),
     story: document.getElementById("storyPanel"),
     hook: document.getElementById("hookPanel"),
+    setup: document.getElementById("setupPanel"),
     captions: document.getElementById("captionsPanel"),
     speaker: document.getElementById("speakerPanel")
   };
@@ -2563,6 +2574,129 @@
   bindDrawer(hkEls.settings, hkEls.settingsToggle);
 
   /* ===================================================================
+   * SETUP TAB — one-time engine install. Everything here is filesystem-only
+   * until the user clicks Download; a complete install never hits the network,
+   * and the engines live outside the extension so an update can't wipe them.
+   * =================================================================== */
+  var enEls = {
+    tab: document.getElementById("setupTab"),
+    list: document.getElementById("enList"),
+    installBtn: document.getElementById("enInstallBtn"),
+    recheckBtn: document.getElementById("enRecheckBtn"),
+    where: document.getElementById("enWhere"),
+    hint: document.getElementById("enHint")
+  };
+
+  function enFmtSize(mb) {
+    return (mb >= 1024) ? (mb / 1024).toFixed(1) + " GB" : mb + " MB";
+  }
+
+  function enRender() {
+    var st = QCEngines.status();
+    enEls.list.innerHTML = "";
+    var missing = 0, missingMb = 0;
+
+    st.forEach(function (s) {
+      var row = document.createElement("div");
+      row.className = "cut-row" + (s.ok ? "" : " off");
+      row.style.gridTemplateColumns = "auto 1fr auto";
+
+      var mark = document.createElement("span");
+      mark.className = "badge " + (s.ok ? "" : "repeat");
+      mark.textContent = s.ok ? "✓" : "—";
+
+      var mid = document.createElement("div");
+      var head = document.createElement("span");
+      head.className = "range";
+      head.textContent = s.label + " ";
+      if (s.optional && !s.ok) {
+        var opt = document.createElement("span");
+        opt.className = "badge"; opt.textContent = "optional ";
+        head.appendChild(opt);
+      }
+      if (s.legacy) {
+        var leg = document.createElement("span");
+        leg.className = "badge filler"; leg.textContent = "Intel build ";
+        leg.title = "No current macOS build is published; this is the last one released (Intel — runs under Rosetta 2 on Apple Silicon).";
+        head.appendChild(leg);
+      }
+      if (s.inRepo) {
+        var dev = document.createElement("span");
+        dev.className = "badge"; dev.textContent = "from repo bin/ ";
+        dev.title = "Found in this checkout's bin/ folder — nothing to download.";
+        head.appendChild(dev);
+      }
+      mid.appendChild(head);
+
+      var why = document.createElement("div");
+      why.className = "ctx"; why.style.marginTop = "3px";
+      why.textContent = s.ok ? s.path : (s.why + " (" + enFmtSize(s.sizeMb) + " download)");
+      mid.appendChild(why);
+
+      var meta = document.createElement("span");
+      meta.className = "meta";
+      meta.textContent = s.ok ? "installed" : enFmtSize(s.sizeMb);
+
+      row.appendChild(mark); row.appendChild(mid); row.appendChild(meta);
+      enEls.list.appendChild(row);
+
+      if (!s.ok) { missing++; missingMb += s.sizeMb; }
+    });
+
+    enEls.where.textContent = "Kept in: " + userRoot();
+    enEls.installBtn.disabled = (missing === 0);
+    enEls.installBtn.textContent = missing
+      ? ("Download " + missing + " missing component(s) — " + enFmtSize(missingMb))
+      : "Everything is installed";
+    // The tab only earns a place in the bar when there's something to do.
+    if (enEls.tab) { enEls.tab.classList.toggle("suggest", missing > 0); }
+    return st;
+  }
+
+  function enInstallAll() {
+    var todo = QCEngines.status().filter(function (s) { return !s.ok; });
+    if (todo.length === 0) { setStatus("Everything's already installed — nothing to download.", "ok"); return; }
+    enEls.installBtn.disabled = true;
+    enEls.recheckBtn.disabled = true;
+
+    var chain = Promise.resolve(), done = 0, failures = [];
+    todo.forEach(function (s) {
+      chain = chain.then(function () {
+        return QCEngines.install(s.name, function (p) {
+          var head = "Installing " + s.label + " (" + (done + 1) + " of " + todo.length + ") — ";
+          if (p.phase === "download") { setStatus(head + "downloading " + (p.pct || 0) + "%", "busy"); }
+          else if (p.phase === "extract") { setStatus(head + "unpacking… (this can take a minute)", "busy"); }
+        }).then(function () { done++; enRender(); })
+          .catch(function (e) {
+            // One failure shouldn't abandon the rest.
+            failures.push(s.label + ": " + (e.message || e));
+          });
+      });
+    });
+
+    chain.then(function () {
+      enEls.installBtn.disabled = false;
+      enEls.recheckBtn.disabled = false;
+      enRender();
+      if (failures.length === 0) {
+        setStatus("Done — " + done + " component(s) installed. This was one time only; Naifu won't " +
+          "download them again.", "ok");
+      } else {
+        setStatus(done + " installed, " + failures.length + " failed. " + failures.join(" · "), "err");
+      }
+    });
+  }
+
+  if (enEls.installBtn) { enEls.installBtn.addEventListener("click", enInstallAll); }
+  if (enEls.recheckBtn) {
+    enEls.recheckBtn.addEventListener("click", function () {
+      enRender();
+      setStatus(QCEngines.ready() ? "All required components are present." : "Some components are still missing.",
+        QCEngines.ready() ? "ok" : "err");
+    });
+  }
+
+  /* ===================================================================
    * SPEAKER TAB — pull name / company / title from the transcript, then
    * open a Google search for the person's LinkedIn. Fields are editable
    * because the AI (and Whisper) can mishear names and companies.
@@ -2776,10 +2910,23 @@
       setStatus("Connected, but Node.js is off — silence, fillers, zoom-by-AI and transcript features won't run. Run setup.ps1 and restart Premiere.", "err");
       return;
     }
+    // Engine check is a plain filesystem look — no network, no download, every
+    // run. Only if something is genuinely missing do we say anything about it.
+    enRender();
+    var missing = QCEngines.status().filter(function (s) { return !s.ok && !s.optional; });
+    if (missing.length) {
+      setStatus("Ready, but " + missing.length + " component(s) still need a one-time download — " +
+        "open the Setup tab.", "err");
+      tabFor("setup");
+      return;
+    }
+
     setStatus("Ready — connected to " + (res.app || "Premiere") + ". Open a sequence to begin.");
     // Warm the local model in the background so the first local-AI call (Speaker,
-    // Cleanup, etc.) is instant instead of waiting on a cold model load. (No-op if
-    // the model isn't downloaded yet — that's fetched on first actual use.)
-    QCAi.preloadModel({ ollamaExe: ollamaExe(), modelsDir: ollamaModelsDir(), model: LLM_MODEL });
+    // Cleanup, etc.) is instant instead of waiting on a cold model load. Skipped
+    // entirely when Ollama isn't installed, so it can't trigger a download.
+    if (QCEngines.have("ollama")) {
+      QCAi.preloadModel({ ollamaExe: ollamaExe(), modelsDir: ollamaModelsDir(), model: LLM_MODEL });
+    }
   });
 })();

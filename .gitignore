@@ -2,6 +2,13 @@
 #    NOT source — each machine fetches its own (ffmpeg, Whisper, Ollama + models). ──
 bin/
 
+# ── Packaging: build output, Adobe's signing tool, and signing certificates.
+#    NEVER commit a .p12 — it's a private key, even the self-signed one. ──
+dist/
+ZXPSignCmd*
+*.p12
+*.pfx
+
 # ── Premiere & test artifacts ──
 Adobe Premiere Pro Auto-Save/
 TEST.*

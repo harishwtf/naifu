@@ -225,6 +225,7 @@
       <div class="tab" data-tab="story">Story</div>
       <div class="tab" data-tab="hook">Hook</div>
       <div class="tab" data-tab="speaker">Speaker</div>
+      <div class="tab" data-tab="setup" id="setupTab">Setup</div>
     </div>
 
     <!-- ============ SILENCE TAB ============ -->
@@ -894,6 +895,24 @@
       </div>
     </div>
 
+    <!-- ============ SETUP TAB (one-time engine install) ============ -->
+    <div class="tab-panel" id="setupPanel">
+      <div class="status" style="margin-bottom:8px;" id="enHint">
+        Naifu needs a few engines to do its work. They're downloaded <b>once</b> and kept outside
+        the extension folder, so updating Naifu never re-downloads them — and normal use never
+        touches the network for them again.
+      </div>
+
+      <div class="cut-list" id="enList" style="max-height:340px;"></div>
+
+      <div class="btn-row" style="margin-top:10px;">
+        <button class="primary" id="enInstallBtn" style="flex:2;">Download missing components</button>
+        <button class="secondary" id="enRecheckBtn" style="flex:1;">Re-check</button>
+      </div>
+
+      <div class="status" style="margin-top:8px;" id="enWhere">—</div>
+    </div>
+
     <!-- ============ CAPTIONS TAB ============ -->
     <div class="tab-panel" id="captionsPanel">
       <button class="primary" id="capScanBtn">Transcribe &amp; build captions</button>
@@ -1086,6 +1105,7 @@
   </div>
 
   <script src="./js/CSInterface.js"></script>
+  <script src="./js/engines.js"></script>
   <script src="./js/audio.js"></script>
   <script src="./js/ai.js"></script>
   <script src="./js/captions.js"></script>

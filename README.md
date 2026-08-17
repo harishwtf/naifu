@@ -88,12 +88,68 @@ Two macOS-specific things the script handles for you:
 
 *(macOS setup is written but not yet verified on real hardware — please report anything off.)*
 
-**This is not a `.zxp`.** A ZXP is a *signed, packaged* CEP extension you'd install
-with the [aescripts ZXP Installer](https://aescripts.com/learn/post/zxp-installer);
-Premiere 23+ (CEP 11) refuses unsigned extensions unless `PlayerDebugMode` is on,
-which is exactly what the setup scripts enable. Packaging and signing a real ZXP
-(`ZXPSignCmd`) is still on the roadmap — it also needs a first-run downloader for
-the engine binaries, since `bin/` is ~13 GB and can't ship inside a ZXP.
+---
+
+## Packaging a `.zxp` (distributable build)
+
+The repo checkout above is the *developer* path — it relies on `PlayerDebugMode`,
+which Premiere 23+ (CEP 11) requires for any unsigned extension. A real,
+double-clickable install is a **signed `.zxp`**:
+
+```powershell
+.\build-zxp.ps1                    # self-signed cert (created once) -> dist\Naifu.zxp
+.\build-zxp.ps1 -Version 0.2.0     # stamp a version into the packaged manifest
+.\build-zxp.ps1 -Cert real.p12 -CertPassword pw    # a CA cert, for public release
+```
+
+Needs [`ZXPSignCmd`](https://github.com/Adobe-CEP/CEP-Resources/tree/master/ZXPSignCMD)
+next to the script (or `-SignCmd <path>`). The user installs the result by dragging
+it onto the [aescripts ZXP Installer](https://aescripts.com/learn/post/zxp-installer),
+which works on both Windows and macOS. A self-signed build shows an
+"unknown publisher" warning — fine for you and testers, but selling through
+aescripts needs a certificate from a CA.
+
+**The package holds the panel only** (~a few hundred KB): `CSXS/`, `js/`, `jsx/`,
+`index.html`. `bin/` is excluded on purpose, and `.debug` is stripped from release
+builds so the remote debugger isn't left open.
+
+## The engine store — downloaded once, never again
+
+The engines (FFmpeg, Whisper, Ollama) are ~3 GB and can't live inside a signed
+ZXP, so `js/engines.js` keeps them **outside the extension folder**:
+
+```
+Windows   %APPDATA%\Naifu\engines\
+macOS     ~/Library/Application Support/Naifu/engines/
+```
+
+That location survives updating or reinstalling Naifu, so **an update never costs
+another download**. The qwen model weights moved there too — they used to sit in the
+extension's `bin/`, which a reinstall would have wiped.
+
+The rule the module enforces: **nothing touches the network unless a binary is
+genuinely missing.** `status()` is a pure filesystem check that runs at startup;
+`install()` returns immediately if the file is already on disk. Once you're set up,
+Naifu makes zero network calls for engines — it also won't preload the local model
+if Ollama isn't installed, so that can't trigger a fetch either. Verified by a test
+that hands the module a network-blocking `https` and asserts **0 calls** across
+install-present, dev-checkout, post-reinstall and adopt scenarios.
+
+Resolution order is `bin/` in the checkout **first**, then the persistent store — so
+an existing dev setup with 13 GB in `bin/` keeps working and downloads nothing.
+
+The **Setup tab** lists each engine (present / missing, size, and what it's for),
+downloads only what's missing on an explicit click, and unpacks everything with
+`bsdtar`/libarchive — one code path for `.zip`, `.tar.gz` *and* the `.7z` Whisper
+ships as. On macOS every installed binary is `xattr -cr` + ad-hoc `codesign`ed, or
+Gatekeeper would kill it. Ollama is marked **optional** — skip it entirely if you
+only use Claude (manual).
+
+> **macOS Whisper caveat:** Purfview publishes **no current macOS build** of
+> Faster-Whisper-XXL — Windows and Linux only. The Mac option is their last release
+> (r186.1, 2023, **Intel** — runs under Rosetta 2 on Apple Silicon), labelled as such
+> in the Setup tab. If you have a better `faster-whisper` build, `QCEngines.adopt()`
+> copies it into the store instead.
 
 ### Test Phase 1 (silence removal)
 
