@@ -380,6 +380,7 @@
     quick: document.getElementById("quickPanel"),
     voxpop: document.getElementById("voxpopPanel"),
     story: document.getElementById("storyPanel"),
+    hook: document.getElementById("hookPanel"),
     captions: document.getElementById("captionsPanel"),
     speaker: document.getElementById("speakerPanel")
   };
@@ -2301,6 +2302,267 @@
   bindDrawer(capEls.settings, capEls.settingsToggle);
 
   /* ===================================================================
+   * HOOK TAB — short clips already cut from a podcast for social. Find the
+   * juiciest line inside each and MARK it (span markers) so the editor makes
+   * the cut by hand. Nothing on the timeline is changed except added markers.
+   * =================================================================== */
+  var HK_KEY = "quietcut.hook.v1";
+  var hk = { items: [], selected: [], manual: null };
+  var hkEls = {
+    scanBtn: document.getElementById("hkScanBtn"),
+    settings: document.getElementById("hkSettings"),
+    settingsToggle: document.getElementById("hkSettingsToggle"),
+    brain: document.getElementById("hkBrain"),
+    perClip: document.getElementById("hkPerClip"),
+    quality: document.getElementById("hkQuality"),
+    color: document.getElementById("hkColor"),
+    reviewCard: document.getElementById("hkReviewCard"),
+    summary: document.getElementById("hkSummary"),
+    list: document.getElementById("hkList"),
+    markBtn: document.getElementById("hkMarkBtn"),
+    closeBtn: document.getElementById("hkCloseBtn"),
+    editBtn: document.getElementById("hkEditBtn")
+  };
+
+  // Hook has its OWN brain (default Claude manual): picking a scroll-stopper is
+  // taste, and the local model is noticeably weaker at it than Claude.
+  function hkLoad() {
+    var v = {};
+    try { v = JSON.parse(localStorage.getItem(HK_KEY)) || {}; } catch (e) {}
+    hkEls.brain.value = v.brain || "manual";
+    if (v.perClip) { hkEls.perClip.value = v.perClip; }
+    if (v.quality) { hkEls.quality.value = v.quality; }
+    if (v.color != null) { hkEls.color.value = v.color; }
+  }
+  function hkSave() {
+    try {
+      localStorage.setItem(HK_KEY, JSON.stringify({
+        brain: hkEls.brain.value, perClip: hkEls.perClip.value,
+        quality: hkEls.quality.value, color: hkEls.color.value
+      }));
+    } catch (e) {}
+  }
+  [hkEls.brain, hkEls.perClip, hkEls.quality, hkEls.color].forEach(function (el) {
+    el.addEventListener("change", hkSave);
+  });
+
+  function hkRender() {
+    hkEls.list.innerHTML = "";
+    var on = 0;
+    hk.items.forEach(function (it, idx) {
+      var row = document.createElement("div");
+      row.className = "cut-row" + (hk.selected[idx] ? "" : " off");
+
+      var cb = document.createElement("input");
+      cb.type = "checkbox"; cb.checked = hk.selected[idx];
+      cb.addEventListener("change", function () { hk.selected[idx] = cb.checked; hkRender(); });
+
+      var mid = document.createElement("div");
+      mid.style.cursor = "pointer";
+      mid.title = "Click to move the playhead to this hook";
+      mid.addEventListener("click", function () { jumpToTime(it.seqStart); });
+
+      var head = document.createElement("span");
+      head.className = "range";
+      var who = document.createElement("span");
+      who.className = "badge speaker";
+      who.textContent = (it.name || it.label) + " ";
+      head.appendChild(who);
+      if (it.type) {
+        var ty = document.createElement("span");
+        ty.className = "badge section"; ty.textContent = it.type + " ";
+        head.appendChild(ty);
+      }
+      if (it.strength) {
+        var str = document.createElement("span");
+        // 8+ = would stop a scroll · 5-7 = serviceable · <5 = the AI is telling
+        // you this clip has no real hook, so make that read differently.
+        str.className = "badge " + (it.strength >= 8 ? "repeat" : "filler");
+        str.textContent = it.strength + "/10 ";
+        str.title = it.strength >= 8 ? "Strong — passes the hook tests"
+          : (it.strength >= 5 ? "Serviceable, but a bit generic" : "The AI says this clip has no real hook in it");
+        head.appendChild(str);
+      }
+      // The AI's quoted words didn't match the indices it gave; we snapped the
+      // range to the words it actually meant. Worth knowing before you cut.
+      if (it.corrected) {
+        var fix = document.createElement("span");
+        fix.className = "badge";
+        fix.textContent = "↺ realigned ";
+        fix.title = "The AI's word indices didn't match the line it quoted — the range was snapped to the quoted words.";
+        head.appendChild(fix);
+      }
+      // Lifting the clip's own opening to the front would play the same line
+      // twice — call it out loudly; these are left unticked.
+      if (it.nearStart) {
+        var warn = document.createElement("span");
+        warn.className = "badge repeat";
+        warn.textContent = "⚠ opens the clip ";
+        warn.title = "This is the clip's opening line — moving it to the top would repeat the same sentence back to back.";
+        head.appendChild(warn);
+      }
+      mid.appendChild(head);
+
+      var q = document.createElement("div");
+      q.className = "qline"; q.textContent = "“" + it.quote + "”";
+      mid.appendChild(q);
+      if (it.reason) {
+        var why = document.createElement("div");
+        why.className = "ctx"; why.style.marginTop = "3px"; why.textContent = it.reason;
+        mid.appendChild(why);
+      }
+
+      var ctrls = document.createElement("span");
+      ctrls.className = "ctrls";
+      var meta = document.createElement("span");
+      meta.className = "meta";
+      meta.textContent = fmtTime(it.seqStart) + " · " + (it.seqEnd - it.seqStart).toFixed(1) + "s";
+      ctrls.appendChild(meta);
+
+      row.appendChild(cb); row.appendChild(mid); row.appendChild(ctrls);
+      hkEls.list.appendChild(row);
+      if (hk.selected[idx]) { on++; }
+    });
+    var clips = {};
+    hk.items.forEach(function (it) { clips[it.clipIndex] = true; });
+    hkEls.summary.textContent = on + " of " + hk.items.length + " hooks ticked · " +
+      Object.keys(clips).length + " clip(s)";
+    if (hkEls.editBtn) { hkEls.editBtn.classList.toggle("hidden", !hk.manual); }
+  }
+
+  function hkShow(items) {
+    hk.items = items || [];
+    // Tick the best USABLE candidate per clip; extras and any flagged
+    // "opens the clip" pick stay unticked (items are already sorted that way).
+    var seen = {};
+    hk.selected = hk.items.map(function (it) {
+      if (seen[it.clipIndex] || it.nearStart) { return false; }
+      seen[it.clipIndex] = true; return true;
+    });
+    if (hk.items.length === 0) {
+      hkEls.reviewCard.classList.add("hidden");
+      setStatus("The AI didn't find a usable hook — try Best accuracy, or Claude if you're on the local brain.", "ok");
+      return;
+    }
+    hkRender();
+    hkEls.reviewCard.classList.remove("hidden");
+    var flagged = hk.items.filter(function (it) { return it.nearStart; }).length;
+    var fixed = hk.items.filter(function (it) { return it.corrected; }).length;
+    var weak = hk.items.filter(function (it) { return it.strength && it.strength < 5; }).length;
+    var msg = "Found " + hk.items.length + " hook(s) — click one to preview it, tick what you want, then Mark.";
+    if (flagged) {
+      msg += " " + flagged + " picked the clip's own opening (⚠) — left unticked, since moving those to the " +
+        "front would play the same line twice.";
+    }
+    if (fixed) { msg += " " + fixed + " range(s) realigned to the words the AI actually quoted."; }
+    if (weak) { msg += " " + weak + " scored under 5 — the AI is saying those clips have no real hook."; }
+    setStatus(msg, flagged ? "err" : "ok");
+  }
+
+  function hkExtract(usable) {
+    var brain = (hkEls.brain && hkEls.brain.value) || "manual";
+    hk.manual = null;
+    if (brain === "manual") {
+      setStatus("Copy the prompt into claude.ai, then paste the reply.", "busy");
+      var prompt = QCAi.buildHookPrompt(usable, aiContext(), hkEls.perClip.value);
+      hk.manual = { prompt: prompt, clips: usable, reply: "" };
+      return manualClaude(prompt, function (reply) {
+        hk.manual.reply = reply;
+        return QCAi.parseHooks(reply, usable);
+      });
+    }
+    setStatus(brain === "claude-api" ? "Asking Claude for the hooks…" : "Asking the local AI for the hooks…", "busy");
+    return QCAi.findHooks({
+      brain: brain, apiKey: brainGet().apiKey, // shared key, only used on claude-api
+      ollamaExe: ollamaExe(), modelsDir: ollamaModelsDir(), model: LLM_MODEL,
+      clips: usable, context: aiContext(), perClip: hkEls.perClip.value
+    });
+  }
+
+  function hkScan() {
+    if (!QCAudio.nodeAvailable() || !QCAi.nodeAvailable()) {
+      setStatus("Node.js isn't enabled — restart Premiere after running setup.ps1.", "err");
+      return;
+    }
+    hkEls.scanBtn.disabled = true;
+    hkEls.reviewCard.classList.add("hidden");
+    var quality = hkEls.quality.value || "small.en";
+    setStatus("Reading the clips on this sequence", "busy");
+
+    host("qcGetVideoClips()").then(function (res) {
+      if (!res.ok) { throw new Error(res.error); }
+      if (!res.clips || res.clips.length === 0) {
+        throw new Error("Put your short clips on the sequence first (one clip per short).");
+      }
+      return QCAudio.transcribePerClip({
+        whisperPath: whisperPath(), ffmpegPath: ffmpegPath(), clips: res.clips, model: quality,
+        onProgress: function (i, n) { setStatus(n > 1 ? ("Transcribing clip " + (i + 1) + " of " + n + "…") : "Transcribing…", "busy"); }
+      });
+    }).then(function (perClip) {
+      var usable = perClip.filter(function (c) { return c.words && c.words.length > 0; });
+      if (usable.length === 0) { throw new Error("No speech found in these clips."); }
+      return hkExtract(usable);
+    }).then(function (items) {
+      hkEls.scanBtn.disabled = false;
+      hkShow(items);
+    }).catch(function (err) {
+      hkEls.scanBtn.disabled = false;
+      setStatus(err.message || String(err), "err");
+    });
+  }
+
+  // "start,end|note;…" for the ticked hooks — note carries the quote so the
+  // marker comment tells you what's there without reopening the panel.
+  function hkSpec() {
+    return hk.items.filter(function (it, i) {
+      return hk.selected[i] && it.seqEnd > it.seqStart;
+    }).map(function (it) {
+      var bits = [];
+      if (it.strength) { bits.push(it.strength + "/10"); }
+      if (it.type) { bits.push(it.type); }
+      var note = (bits.length ? bits.join(" ") + " - " : "") + "'" + it.quote + "'" +
+        (it.reason ? " - " + it.reason : "");
+      note = note.replace(/[;|,\r\n]+/g, " ").trim().slice(0, 220);
+      return it.seqStart.toFixed(3) + "," + it.seqEnd.toFixed(3) + "|" + note;
+    }).join(";");
+  }
+
+  function hkMark() {
+    var spec = hkSpec();
+    if (!spec) { setStatus("Tick at least one hook to mark.", "err"); return; }
+    hkEls.markBtn.disabled = true;
+    setStatus("Dropping hook markers", "busy");
+    var color = parseInt(hkEls.color.value, 10);
+    if (isNaN(color)) { color = 1; }
+    host('qcAddRangeMarkers("' + jsxEscape(spec) + '",' + color + ',"Hook")').then(function (res) {
+      hkEls.markBtn.disabled = false;
+      if (!res.ok) { setStatus(res.error || "Could not add markers.", "err"); return; }
+      // Two markers per hook: "Hook N" at the in, "Hook N out" at the out.
+      var msg = "Marked " + res.count + " hook(s) — “Hook N” at the in point and “Hook N out” at the out, " +
+        "so you can jump between them and make the cut.";
+      if (res.spans === res.count && res.count) {
+        msg += " The in marker also spans the range on the ruler.";
+      }
+      setStatus(msg, "ok");
+    }).catch(function (err) {
+      hkEls.markBtn.disabled = false;
+      setStatus(err.message || String(err), "err");
+    });
+  }
+
+  hkEls.scanBtn.addEventListener("click", hkScan);
+  hkEls.markBtn.addEventListener("click", hkMark);
+  hkEls.closeBtn.addEventListener("click", function () { hkEls.reviewCard.classList.add("hidden"); });
+  hkEls.editBtn.addEventListener("click", function () {
+    manualEdit(hk.manual, function (reply) { return QCAi.parseHooks(reply, hk.manual.clips); })
+      .then(function (items) {
+        if (!items || items.length === 0) { setStatus("That reply has no hooks — edit it again.", "ok"); return; }
+        hkShow(items);
+      }).catch(function (err) { setStatus(err.message || String(err), "err"); });
+  });
+  bindDrawer(hkEls.settings, hkEls.settingsToggle);
+
+  /* ===================================================================
    * SPEAKER TAB — pull name / company / title from the transcript, then
    * open a Google search for the person's LinkedIn. Fields are editable
    * because the AI (and Whisper) can mishear names and companies.
@@ -2491,6 +2753,7 @@
   capLoad();
   spLoad();
   stLoad();
+  hkLoad();
   brainInit();
   contextInit();
   // First-run model download: when a local scan needs qwen and it isn't installed,

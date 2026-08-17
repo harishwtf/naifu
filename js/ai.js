@@ -524,6 +524,213 @@ var QCAi = (function () {
     return gen.then(function (resp) { return parseStory(resp, cfg.clips); });
   }
 
+  /* ---------- Hooks (juiciest moment inside each social short) ---------- */
+
+  /**
+   * How far into a clip the hook must start. The chosen line gets lifted to the
+   * TOP of the short, so if it's the clip's own opening the viewer hears the same
+   * sentence twice back to back. Everything before this word index is off limits.
+   */
+  var HOOK_HEAD_SEC = 5;
+  function hookMinIndex(clip, headSec) {
+    var ws = (clip && clip.words) || [];
+    if (ws.length === 0) { return 0; }
+    var head = (headSec == null) ? HOOK_HEAD_SEC : headSec;
+    var t0 = ws[0].srcStart, i = 0;
+    while (i < ws.length && (ws[i].srcStart - t0) < head) { i++; }
+    // Never let the rule swallow the clip — leave at least two thirds in play.
+    var cap = Math.floor(ws.length / 3);
+    return (i > cap) ? cap : i;
+  }
+
+  /**
+   * The editor already cut short clips out of a podcast; each one needs a hook.
+   * Ask for the single most scroll-stopping line INSIDE each clip, as an exact
+   * word range, so the panel can mark it on the timeline for a manual cut.
+   */
+  function buildHookPrompt(clips, context, perClip) {
+    var n = parseInt(perClip, 10);
+    if (isNaN(n) || n < 1) { n = 1; }
+    var parts = clips.map(function (c, ci) {
+      var name = (c && c.clip && c.clip.name) ? String(c.clip.name).trim() : "";
+      var dur = (c && c.clip && c.clip.outSec > c.clip.inSec)
+        ? " (" + (c.clip.outSec - c.clip.inSec).toFixed(1) + "s)" : "";
+      var min = hookMinIndex(c);
+      var gate = min > 0 ? " — OPENING IS OFF LIMITS: your range must START at word [" + min + "] or later" : "";
+      var ws = (c.words || []).map(function (w, wi) { return "[" + wi + "]" + w.text; });
+      return "CLIP " + ci + (name ? " [" + name + "]" : "") + dur + gate + ":\n" +
+        (ws.length ? ws.join(" ") : "(no speech)");
+    });
+    var howMany = (n === 1)
+      ? "For EACH clip, pick the ONE strongest hook."
+      : "For EACH clip, pick up to " + n + " candidate hooks, BEST FIRST.";
+    return "You are a social-media editor preparing short clips cut from a podcast for Reels / Shorts / TikTok. " +
+      "Each clip below is one short; its transcript is shown as numbered WORDS in the form [index]word.\n\n" +
+      contextBlock(context) +
+      parts.join("\n\n") + "\n\n" +
+      "A HOOK is the single juiciest line in the clip. The editor will LIFT it out and paste it at the very " +
+      "TOP of the short, before everything else — so it has two jobs: stop the scroll in about 2 seconds, " +
+      "and make the viewer stay for the WHOLE clip. Viewers decide in 1–3 seconds, and the retention curve " +
+      "drops hardest right at the start, so a hook that needs a slow build has already lost.\n\n" +
+
+      "NEVER PICK THE CLIP'S OPENING LINE. This is the most important rule. The hook is moved to the front, so if " +
+      "you choose the first thing said, the viewer hears the same sentence twice in a row and it's unusable. Each " +
+      "clip above tells you the earliest word index you may start at — obey it, and skip the whole opening thought, " +
+      "not just the first few words. Take your hook from the BODY of the clip.\n\n" +
+
+      "THE PATTERNS THAT WORK — pick the line that best fits one of these:\n" +
+      "1. CONTRADICTION / pattern interrupt — a statement that violates what the viewer expects. \"I made more money after I stopped posting daily.\"\n" +
+      "2. HARD NUMBER — a specific figure with stakes attached. \"I lost eight hundred thousand dollars in one afternoon.\" Numbers read as proof; vague scale reads as noise.\n" +
+      "3. CONFESSION / high stakes — an admission with a real cost, risk or consequence named out loud. \"I nearly went bankrupt hiding this from my co-founder.\"\n" +
+      "4. NARROW CURIOSITY GAP — opens ONE specific question the rest of the clip answers. \"Nobody on my team noticed for three days.\" A gap only works if it's specific and closable; a broad gap (\"everyone's doing it wrong\") fails, because the viewer can't tell what they'd even find out.\n" +
+      "5. HOT TAKE / punchline — a blunt, quotable, argue-with-me opinion, or a genuinely funny line.\n\n" +
+
+      "TEST EVERY CANDIDATE AGAINST ALL SIX — if it fails one, it is not your pick:\n" +
+      "a) SHORT: lands in about 2–3 seconds spoken. Roughly 5–15 words. A paragraph is not a hook.\n" +
+      "b) SPECIFIC: contains something concrete — a number, a name, a place, a price, a vivid image. Abstractions (\"it was a really challenging journey\", \"mindset is everything\") are the single most common failure. Prefer the line with the concrete detail in it, even if a vaguer line sounds grander.\n" +
+      "c) STANDS ALONE COLD: understandable by someone who has heard NOTHING before it. Reject anything starting with a dangling reference — \"that's when it happened\", \"and he told me\", \"this is the part\" — because the viewer has no idea what \"that\", \"he\" or \"this\" is. If you can't tell who or what is being talked about from the words alone, it fails.\n" +
+      "d) NO HEDGING: cut candidates built on \"I think maybe\", \"sort of\", \"you know\", \"I guess\". Hedged language kills authority. Prefer the flat declarative version of the same idea.\n" +
+      "e) STAKES BEFORE JARGON: consequences named in plain words. A line that opens with industry jargon or an acronym burns the viewer's attention before any value lands.\n" +
+      "f) THE CLIP ACTUALLY DELIVERS IT: the promise must be paid off by what's in this clip. A hook the clip doesn't answer is a bait-and-switch and performs worse than a weaker honest one.\n\n" +
+
+      "Do NOT spoil the payoff: if the juiciest line is the final punchline or the resolution, prefer the provocative " +
+      "setup that makes people wait for it — a spoiled ending kills the watch-through.\n\n" +
+
+      "AUTOMATIC REJECTS: the clip's opening line; the interviewer's question; greetings and pleasantries; " +
+      "throat-clearing (\"so basically…\", \"I think that…\", \"yeah so\"); slow setup and backstory; " +
+      "generic motivational lines with no evidence in them; anything that only lands if you heard the earlier context.\n\n" +
+
+      "Rules:\n" +
+      "- " + howMany + "\n" +
+      "- Your range must start at or after that clip's stated minimum word index. A hook that starts the clip is rejected.\n" +
+      "- Choose the EXACT word range: start on the first word of the line and end on the last, trimmed tight — no leading \"and so\", no trailing \"um\".\n" +
+      "- Use only words that actually appear in that clip's list, and never span across clips.\n" +
+      "- Copy the exact words of your chosen range into the \"text\" field, so the editor can verify the range lines up.\n" +
+      "- Before you commit, scan the WHOLE clip. The best line is usually buried in the middle, not near either end.\n\n" +
+
+      "SCORING — use the full range honestly, most clips are a 5–7:\n" +
+      "  9–10 = passes all six tests and would genuinely stop a scroll cold.\n" +
+      "  7–8  = strong, one test is only partly met.\n" +
+      "  5–6  = serviceable but generic or a little vague.\n" +
+      "  1–4  = this clip has no real hook in it. SAY SO. A truthful 3 is far more useful to the editor than an inflated 8 — they will trust the score and skip the clip.\n\n" +
+
+      "Do NOT ask questions or request more information — you have everything you need above. Commit to your best editorial judgment and answer in a single turn.\n\n" +
+      "OUTPUT — THIS IS CRITICAL. Reply with ONE JSON object and NOTHING else: no preamble, no explanation, no notes, no questions. " +
+      "Your entire reply must start with { and end with }. Use exactly this shape:\n" +
+      '{"hooks":[{"clip":N,"from":S,"to":E,"text":"the exact words of your range",' +
+      '"strength":1-10,"type":"contradiction|number|confession|curiosity|hot-take|funny",' +
+      '"reason":"which pattern it is and why it holds them"}]}\n' +
+      "clip = the CLIP number; from/to = WORD indices (inclusive) within that clip. Return only the JSON.";
+  }
+
+  /** Strip case/punctuation so transcript words and quoted words compare equal. */
+  function normWord(s) {
+    return String(s == null ? "" : s).toLowerCase().replace(/[^a-z0-9']+/g, "");
+  }
+
+  /**
+   * The model quotes the words it meant AND gives indices; when they disagree,
+   * the indices are the thing that's wrong (an off-by-N marks the wrong words on
+   * the timeline, silently). Trust the text: find that word sequence in the clip
+   * and correct the range. Returns {from, to, corrected}.
+   */
+  function alignHookText(clip, from, to, text) {
+    var ws = (clip && clip.words) || [];
+    var want = String(text == null ? "" : text).split(/\s+/).map(normWord).filter(Boolean);
+    if (ws.length === 0 || want.length < 2) { return { from: from, to: to, corrected: false }; }
+
+    var have = [];
+    for (var i = 0; i < ws.length; i++) { have.push(normWord(ws[i].text)); }
+
+    // Already right? (compare what the given range actually covers)
+    var cur = have.slice(from, to + 1).join(" ");
+    if (cur === want.join(" ")) { return { from: from, to: to, corrected: false }; }
+
+    // Exact sequence match anywhere in the clip.
+    var hits = [];
+    for (var s = 0; s + want.length <= have.length; s++) {
+      var ok = true;
+      for (var k = 0; k < want.length; k++) {
+        if (have[s + k] !== want[k]) { ok = false; break; }
+      }
+      if (ok) { hits.push(s); }
+    }
+    // Repeated phrase: prefer the occurrence nearest the model's own guess.
+    if (hits.length) {
+      var best = hits[0];
+      for (var h = 1; h < hits.length; h++) {
+        if (Math.abs(hits[h] - from) < Math.abs(best - from)) { best = hits[h]; }
+      }
+      return { from: best, to: best + want.length - 1, corrected: true };
+    }
+
+    // Whisper may have heard a word differently — accept the window with the
+    // most matching tokens in order, as long as it's clearly the right spot.
+    var bestStart = -1, bestScore = 0;
+    for (var s2 = 0; s2 + want.length <= have.length; s2++) {
+      var score = 0;
+      for (var k2 = 0; k2 < want.length; k2++) {
+        if (have[s2 + k2] === want[k2]) { score++; }
+      }
+      if (score > bestScore) { bestScore = score; bestStart = s2; }
+    }
+    if (bestStart >= 0 && bestScore >= Math.ceil(want.length * 0.7)) {
+      return { from: bestStart, to: bestStart + want.length - 1, corrected: true };
+    }
+    return { from: from, to: to, corrected: false };
+  }
+
+  function parseHooks(reply, clips) {
+    var data = extractJson(reply);
+    if (!data) { throw new Error("The AI returned unreadable output."); }
+    // Accept {hooks:[...]} or, leniently, a bare [...] array.
+    var hs = data.hooks || (Array.isArray(data) ? data : []);
+    var out = [];
+    hs.forEach(function (h) {
+      var ci = parseInt(h.clip, 10);
+      if (isNaN(ci) || ci < 0 || ci >= clips.length) { return; }
+      // Indices decide what gets marked, but the model's own quote is the better
+      // witness — realign first so an off-by-N doesn't mark the wrong words.
+      var a = alignHookText(clips[ci], parseInt(h.from, 10), parseInt(h.to, 10), h.text);
+      var t = wordRangeToTimes(clips[ci], a.from, a.to);
+      if (!t) { return; }
+      var strength = parseInt(h.strength, 10);
+      if (isNaN(strength)) { strength = 0; }
+      strength = Math.max(0, Math.min(10, strength));
+      var name = (clips[ci] && clips[ci].clip && clips[ci].clip.name) ? String(clips[ci].clip.name).trim() : "";
+      // The model can ignore the "not the opening" rule — check it ourselves.
+      // Flagged rather than dropped, so a clip is never left with no candidate;
+      // the panel shows the warning and leaves it unticked.
+      var nearStart = !isNaN(a.from) && a.from < hookMinIndex(clips[ci]);
+      out.push({
+        clipIndex: ci, label: "Clip " + (ci + 1), name: name,
+        strength: strength, type: String(h.type || ""), reason: String(h.reason || ""),
+        nearStart: nearStart, corrected: a.corrected,
+        seqStart: t.seqStart, seqEnd: t.seqEnd, srcStart: t.srcStart, srcEnd: t.srcEnd,
+        quote: t.quote
+      });
+    });
+    // Group by clip (timeline order); usable candidates first, then strength.
+    out.sort(function (a, b) {
+      return (a.clipIndex - b.clipIndex) ||
+        ((a.nearStart ? 1 : 0) - (b.nearStart ? 1 : 0)) ||
+        (b.strength - a.strength) || (a.seqStart - b.seqStart);
+    });
+    return out;
+  }
+
+  function findHooks(cfg) {
+    var prompt = buildHookPrompt(cfg.clips, cfg.context, cfg.perClip);
+    var gen;
+    if (cfg.brain === "claude-api") {
+      if (!cfg.apiKey) { return Promise.reject(new Error("Enter your Claude API key (or use the manual brain).")); }
+      gen = generateClaudeApi(prompt, cfg.apiKey);
+    } else {
+      gen = runLocal(cfg, prompt);
+    }
+    return gen.then(function (resp) { return parseHooks(resp, cfg.clips); });
+  }
+
   /* ---------- Speaker details (name / company / title for LinkedIn lookup) ---------- */
 
   function buildSpeakerPrompt(segs, context) {
@@ -584,6 +791,11 @@ var QCAi = (function () {
     buildTranscriptEditPrompt: buildTranscriptEditPrompt,
     parseTranscriptEdits: parseTranscriptEdits,
     findTranscriptEdits: findTranscriptEdits,
+    hookMinIndex: hookMinIndex,
+    alignHookText: alignHookText,
+    buildHookPrompt: buildHookPrompt,
+    parseHooks: parseHooks,
+    findHooks: findHooks,
     buildSpeakerPrompt: buildSpeakerPrompt,
     parseSpeakers: parseSpeakers,
     findSpeakers: findSpeakers,

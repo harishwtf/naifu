@@ -312,6 +312,60 @@ setup.ps1             install / uninstall developer setup (+ FFmpeg download)
     file, which still groups same-source clips as one speaker. The review row shows the speaker. Shares the word-level transcription and the `qcBuildVoxPop` assembler with Vox
   Pop (now takes a name label + restores each source clip's in/out after the build, so a
   many-beats-from-one-source documentary doesn't leave the bin clip trimmed).
+- [ ] **Phase 11** — Hook finder (social shorts). In testing. For clips you've **already cut
+  out of a podcast** and want to post: each clip on the sequence is transcribed with
+  **word-level** timestamps, and the AI picks the **juiciest, scroll-stopping line inside it** —
+  the moment you'd lift to the very top of the short. It returns an exact **word range**
+  (`from`/`to` are word indices, so a hook can be a 6-word phrase, not a whole sentence), a
+  **strength 1–10**, a type (claim / stat / story / confession / open-loop / punchline /
+  emotional) and a one-line reason.
+  - **Never the clip's opening line — the rule that makes the feature work.** The hook gets
+    lifted to the *front* of the short, so if it's also how the clip already starts, the viewer
+    hears the same sentence twice back to back. Each clip's prompt states an explicit
+    earliest-allowed word index (`hookMinIndex` — the first ~5s of speech, capped at a third of
+    the clip so short clips stay usable), and **`parseHooks` re-checks it** rather than trusting
+    the model: a hook that starts in the head zone is flagged `nearStart`, sorted below the
+    clean candidates, shown with a **⚠ opens the clip** badge, and **left unticked**. Flagged,
+    not dropped, so a clip is never left with zero candidates.
+  - **The brief is research-backed, not vibes.** Viewers decide in 1–3s and the retention curve
+    drops hardest at the very start, so the prompt names the five patterns that actually work
+    (contradiction / pattern-interrupt, hard number with stakes, confession, **narrow** curiosity
+    gap, hot take or punchline) and makes the model test every candidate against six pass/fail
+    checks: **short** (~2–3s spoken, 5–15 words), **specific** (a number, name, price or vivid
+    image — abstraction is the #1 failure), **stands alone cold** (rejects dangling references
+    like "that's when it happened" — fatal for a lifted quote), **no hedging**, **stakes before
+    jargon**, and **the clip actually delivers the promise** (a bait-and-switch hook underperforms
+    an honest weaker one). A curiosity gap only counts if it's specific and closable — broad gaps
+    ("everyone's doing it wrong") fail. Plus: don't spoil the payoff, and scan the whole clip
+    because the best line is usually buried mid-clip.
+  - **Honest scoring.** An anchored rubric (9–10 stops a scroll cold · 7–8 strong · 5–6 generic ·
+    **1–4 = this clip has no real hook, say so**) with "most clips are a 5–7", so a weak clip
+    reads as *skip me* instead of an inflated 8. Sub-5 hooks get a muted badge and the status
+    line calls out how many there were.
+  - **Index realignment (silent-corruption guard).** The model returns the exact `text` of its
+    chosen range alongside the indices; `alignHookText` compares them and, when they disagree,
+    **trusts the quote and snaps the range to those words** (exact sequence match, nearest
+    occurrence for a repeated phrase, else a ≥70% in-order token match to survive a Whisper
+    mishearing). Without this, an off-by-N index silently marks the wrong words with no visible
+    error. Realigned hooks show a **↺ realigned** badge. Replies with no `text` field (older
+    replies, local model) still parse.
+  - **Marks, never cuts.** "Mark hooks on timeline" adds **two markers per hook** —
+    `Hook N` at the in point (carrying `strength - type - 'the quote' - reason` as its comment)
+    and `Hook N out` at the out — so you can jump between the two edit points. Nothing is
+    razored or rippled; you make the cut yourself, which is the whole point.
+    - **Why a pair, not one duration marker:** `Marker.end` is inconsistent across builds — a
+      Time object on some, a plain number on others, and **silently ignored** on some, which
+      left a lone start dot with no visible end. `qcAddRangeMarkers` still sets the duration
+      (so the in marker also draws as a bar where supported) and **reads it back** to report
+      honestly, but the separate out marker is always written. Verified against all three
+      build behaviours.
+  - **Own brain, default Claude (manual)** — judging a hook is taste, and the local model is
+    noticeably weaker at it; switchable to local/API per-tab (API mode reuses the shared key).
+    Manual replies are editable (✎ Edit reply) like the other AI tabs, and the shared
+    AI-context box feeds the prompt.
+  - **Hooks per clip (1–3)** gives you alternatives; the strongest per clip is pre-ticked and
+    extras stay unticked. Review rows show speaker/clip name, type, strength, the quote, the
+    reason and the timecode + duration; click one to move the playhead there.
 - [ ] **Phase 9** — Speaker → LinkedIn. In testing. The AI pulls each person's **name,
   company, and job title** from how they introduce themselves (uses the shared AI-context
   box; manual-Claude editable reply supported). Has its **own brain setting, default Local

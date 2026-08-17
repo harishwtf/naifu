@@ -190,6 +190,87 @@ function qcAddZoomMarkers(spec, colorIndex) {
     }
 }
 
+/**
+ * Drop markers that SPAN a range (in/out visible on the ruler), so the editor
+ * can see exactly which words a suggestion covers and trim the cut by hand.
+ * Non-destructive: it only ADDS markers — clips are never touched.
+ *
+ * You get TWO markers per range — "Hook 2" at the in point (carrying the note)
+ * and "Hook 2 out" at the out — because Marker.end is unreliable: on some builds
+ * it's a Time object, on others a plain number, and on some the write is silently
+ * ignored, which leaves a lone start dot with no visible end. We still SET the
+ * duration (so the in marker also draws as a bar where supported) and read it
+ * back to report honestly, but the out marker is always there regardless.
+ *
+ * @param {string} spec  "start,end|note;start,end|note;..."  seconds (end <= start = point marker only)
+ * @param {string|number} colorIndex  Premiere marker color 0..7 (default 1)
+ * @param {string} label  marker name prefix, e.g. "Hook" (default "Hook")
+ * @return {string} JSON {"ok":true,"count":N,"spans":N,"outs":N}
+ */
+function qcAddRangeMarkers(spec, colorIndex, label) {
+    try {
+        var seq = app.project.activeSequence;
+        if (!seq) { return '{"ok":false,"error":"No active sequence."}'; }
+        if (!spec) { return '{"ok":false,"error":"Nothing to mark."}'; }
+        var ci = parseInt(colorIndex, 10);
+        if (isNaN(ci)) { ci = 1; }
+        var pre = (label ? String(label) : "") || "Hook";
+        var items = String(spec).split(";");
+        var count = 0, spans = 0, outs = 0;
+        // Marker times snap to frames, so a readback is "equal" within ~1 frame.
+        var TOL = 0.06;
+
+        for (var i = 0; i < items.length; i++) {
+            if (!items[i]) { continue; }
+            var seg = items[i].split("|");
+            var times = seg[0].split(",");
+            var s = parseFloat(times[0]);
+            if (isNaN(s)) { continue; }
+            if (s < 0) { s = 0; }
+            var e = (times.length > 1) ? parseFloat(times[1]) : NaN;
+            var note = (seg.length > 1) ? seg[1] : "";
+            var n = count + 1;
+
+            var m = seq.markers.createMarker(s);
+            try { m.name = pre + " " + n; } catch (eN) {}
+            if (note) { try { m.comments = note; } catch (eC) {} }
+            try { m.setColorByIndex(ci); } catch (eCol) {}
+
+            if (!isNaN(e) && e > s) {
+                // Give the in marker a duration too, where the build allows it.
+                try { m.end.seconds = e; } catch (e1) {}
+                if (!qc_markerEndsAt(m, e, TOL)) {
+                    try { m.end = e; } catch (e2) {}
+                }
+                if (qc_markerEndsAt(m, e, TOL)) { spans++; }
+
+                // Always mark the out point as its own marker — the only shape
+                // that's guaranteed visible and navigable on every build.
+                var m2 = seq.markers.createMarker(e);
+                try { m2.name = pre + " " + n + " out"; } catch (eN2) {}
+                try { m2.comments = "End of " + pre + " " + n; } catch (eC2) {}
+                try { m2.setColorByIndex(ci); } catch (eCol2) {}
+                outs++;
+            }
+            count++;
+        }
+        return '{"ok":true,"count":' + count + ',"spans":' + spans + ',"outs":' + outs + '}';
+    } catch (e) {
+        return '{"ok":false,"error":"' + qc_jsonEscape(e.toString()) + '"}';
+    }
+}
+
+/** Did marker `m`'s end actually land on `sec`? (end is a Time on most builds, a number on some.) */
+function qc_markerEndsAt(m, sec, tol) {
+    var got;
+    try {
+        got = (m.end != null && m.end.seconds != null) ? m.end.seconds : m.end;
+    } catch (e) { return false; }
+    got = parseFloat(got);
+    if (isNaN(got)) { return false; }
+    return Math.abs(got - sec) <= tol;
+}
+
 /** Name of the active sequence, so the panel can show what's being edited. */
 function qcActiveSequenceName() {
     try {

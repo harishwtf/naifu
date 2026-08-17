@@ -223,6 +223,7 @@
       <div class="tab" data-tab="highlights">Highlights</div>
       <div class="tab" data-tab="voxpop">Vox Pop</div>
       <div class="tab" data-tab="story">Story</div>
+      <div class="tab" data-tab="hook">Hook</div>
       <div class="tab" data-tab="speaker">Speaker</div>
     </div>
 
@@ -814,6 +815,82 @@
         filler, picks the strongest moments, and orders them into a narrative — then Build
         assembles a new "– Story" sequence from the source media. Reorder or deselect beats
         before building. Originals stay untouched.
+      </div>
+    </div>
+
+    <!-- ============ HOOK TAB (juiciest moment inside each social short) ============ -->
+    <div class="tab-panel" id="hookPanel">
+      <button class="primary" id="hkScanBtn">Find hooks in these clips</button>
+
+      <div class="settings open" id="hkSettings">
+        <div class="settings-toggle" id="hkSettingsToggle">
+          <span><span class="chev">▸</span> Settings</span>
+        </div>
+        <div class="settings-body">
+          <div class="field">
+            <div><label for="hkBrain">AI brain</label>
+              <span class="hint">Claude (manual) recommended — judging a hook is taste, not lookup</span></div>
+            <select id="hkBrain">
+              <option value="manual">Claude (manual · claude.ai)</option>
+              <option value="claude-api">Claude (API key · shared)</option>
+              <option value="local">Local (qwen)</option>
+            </select>
+          </div>
+          <div class="field-col qc-contextfield">
+            <label for="hkCtx">Context for the AI <span class="hint">optional — the show, the audience, what you're promoting (shared across all AI tabs)</span></label>
+            <textarea id="hkCtx" class="qc-context" placeholder="e.g. Founder podcast, clips go on IG Reels for an audience of early-stage founders. She represents Acme — keep brand mentions."></textarea>
+          </div>
+          <div class="field">
+            <div><label for="hkPerClip">Hooks per clip</label>
+              <span class="hint">More = alternatives to choose between</span></div>
+            <select id="hkPerClip">
+              <option value="1">1 — just the best</option>
+              <option value="2">2 candidates</option>
+              <option value="3">3 candidates</option>
+            </select>
+          </div>
+          <div class="field">
+            <div><label for="hkQuality">Transcription</label>
+              <span class="hint">Whisper accuracy (word-level timing)</span></div>
+            <select id="hkQuality">
+              <option value="base.en">Fast</option>
+              <option value="small.en">Balanced</option>
+              <option value="medium.en">Best</option>
+            </select>
+          </div>
+          <div class="field">
+            <div><label for="hkColor">Marker colour</label>
+              <span class="hint">Colour of the hook markers on the ruler</span></div>
+            <select id="hkColor">
+              <option value="1">Red</option>
+              <option value="0">Green</option>
+              <option value="2">Purple</option>
+              <option value="3">Orange</option>
+              <option value="4">Yellow</option>
+              <option value="6">Blue</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="card review hidden" id="hkReviewCard">
+        <div class="review-head">
+          <span class="summary" id="hkSummary">—</span>
+          <button class="secondary hidden" id="hkEditBtn" title="Reopen Claude's reply to tweak the JSON — no re-transcribe">✎ Edit reply</button>
+        </div>
+        <div class="cut-list" id="hkList" style="max-height: 320px;"></div>
+        <div class="btn-row" style="margin-top: 10px;">
+          <button class="primary" id="hkMarkBtn" style="flex:2;">Mark hooks on timeline</button>
+          <button class="secondary" id="hkCloseBtn" style="flex:1;">Close</button>
+        </div>
+      </div>
+
+      <div class="status" style="margin-top:4px;" id="hkHint">
+        For short clips you've already pulled out of a podcast. Each clip on the sequence is
+        transcribed to the word, then the AI picks the juiciest, scroll-stopping line inside it.
+        Tick the ones you like and Mark — you get a coloured marker spanning each hook (name, quote
+        and strength in the comment) so you can jump to it and make the cut yourself. Nothing is cut
+        automatically.
       </div>
     </div>
 
