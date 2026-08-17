@@ -114,12 +114,24 @@ var QCAudio = (function () {
     } else if (err && (err.signal === "SIGKILL" || err.signal === "SIGABRT")) {
       msg = label + " was killed on launch (" + err.signal + ") — usually macOS Gatekeeper blocking an unsigned " +
         "binary. Fix with:  xattr -cr \"" + exe + "\" && codesign -s - \"" + exe + "\"";
+    } else if (err && err.killed) {
+      msg = label + " was still running after the time limit and got stopped.";
     } else if (code !== null) {
       msg = label + " failed (exit code " + code + ").";
     } else if (err) {
       msg = label + " failed to run: " + (err.message || String(err));
     } else {
       msg = label + " produced no usable output.";
+    }
+    // Raw spawn details, so an unrecognised failure is still actionable rather
+    // than just "Command failed".
+    if (err) {
+      var bits = [];
+      if (err.code !== undefined && typeof err.code !== "number") { bits.push("code=" + err.code); }
+      if (err.errno !== undefined) { bits.push("errno=" + err.errno); }
+      if (err.signal) { bits.push("signal=" + err.signal); }
+      if (err.killed) { bits.push("killed=true"); }
+      if (bits.length) { msg += " [" + bits.join(" ") + "]"; }
     }
     if (tail) { msg += "\n\n" + label + " said:\n" + tail; }
     return new Error(msg);
@@ -517,6 +529,57 @@ var QCAudio = (function () {
    * Beats discovering it as a vague failure halfway through a transcription.
    */
   function testEngines(cfg) {
+    /** Run a helper and hand back its first line (blank on any problem). */
+    function sniff(cmd, args) {
+      return new Promise(function (resolve) {
+        runProc(cmd, args, { timeout: 15000 }, function (err, stdout, stderr) {
+          resolve({
+            ok: !err,
+            text: (((stdout || "") + " " + (stderr || "")).trim().split("\n")[0] || "").slice(0, 160)
+          });
+        });
+      });
+    }
+
+    /**
+     * When a binary won't launch on macOS, the cause is nearly always an
+     * architecture mismatch or a missing Rosetta. Ask the system directly
+     * instead of leaving the user to guess: what is this file, what is this
+     * machine, and can it run Intel code at all?
+     */
+    function macDiagnosis(exe) {
+      var isMac = false;
+      try { isMac = process.platform === "darwin"; } catch (e) {}
+      if (!isMac) { return Promise.resolve(""); }
+      return Promise.all([
+        sniff("/usr/bin/file", ["-b", exe]),
+        sniff("/usr/bin/uname", ["-m"]),
+        sniff("/usr/bin/arch", ["-x86_64", "/usr/bin/true"]),
+        sniff("/bin/ls", ["-l@", exe])
+      ]).then(function (r) {
+        var binary = r[0].text, machine = r[1].text, rosettaOk = r[2].ok, perms = r[3].text;
+        var lines = [];
+        if (binary) { lines.push("binary: " + binary); }
+        if (machine) { lines.push("this Mac: " + machine); }
+
+        var binIntel = /x86_64|i386/i.test(binary) && !/arm64/i.test(binary);
+        if (machine === "arm64" && binIntel) {
+          lines.push(rosettaOk
+            ? "→ Intel binary on Apple Silicon, and Rosetta 2 IS installed — so the arch isn't the problem."
+            : "→ THIS IS IT: an Intel binary on Apple Silicon with NO Rosetta 2. Install it:\n" +
+              "   softwareupdate --install-rosetta --agree-to-license");
+        }
+        if (/quarantine/i.test(perms)) {
+          lines.push("→ The file still carries a com.apple.quarantine flag. Clear it:\n" +
+            "   xattr -cr \"" + exe + "\" && codesign -s - \"" + exe + "\"");
+        }
+        if (perms && !/^-..x/.test(perms)) {
+          lines.push("→ Not marked executable. Run:  chmod +x \"" + exe + "\"");
+        }
+        return lines.length ? "\n" + lines.join("\n") : "";
+      }).catch(function () { return ""; });
+    }
+
     function probe(label, exe, args, env) {
       return new Promise(function (resolve) {
         if (!exe) { resolve({ label: label, ok: false, detail: "No path configured." }); return; }
@@ -533,10 +596,14 @@ var QCAudio = (function () {
             resolve({ label: label, ok: true, detail: out.split("\n")[0].slice(0, 140) });
             return;
           }
-          resolve({ label: label, ok: false, detail: procError(label, exe, err, stderr).message });
+          var base = procError(label, exe, err, stderr).message;
+          macDiagnosis(exe).then(function (extra) {
+            resolve({ label: label, ok: false, detail: base + extra });
+          });
         });
       });
     }
+
     return Promise.all([
       probe("FFmpeg", cfg.ffmpegPath, ["-version"]),
       probe("Whisper", cfg.whisperPath, ["--help"], whisperEnv(cfg.whisperPath))
