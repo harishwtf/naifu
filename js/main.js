@@ -101,8 +101,16 @@
   /* ---------- shared AI "brain" selector (used by Highlights + Zoom) ---------- */
   var BRAIN_KEY = "quietcut.brain.v1";
   function brainGet() {
-    try { var v = JSON.parse(localStorage.getItem(BRAIN_KEY)); if (v) { return v; } } catch (e) {}
-    return { brain: "local", apiKey: "" };
+    try {
+      var v = JSON.parse(localStorage.getItem(BRAIN_KEY));
+      // The local (qwen) brain is gone — anyone who had it saved lands on
+      // manual, which needs no key and no install.
+      if (v) {
+        if (v.brain === "local") { v.brain = "manual"; }
+        return v;
+      }
+    } catch (e) {}
+    return { brain: "manual", apiKey: "" };
   }
   function brainSync() {
     var v = brainGet();
@@ -296,9 +304,6 @@
 
   function ffmpegPath() { return QCEngines.pathFor("ffmpeg"); }
   function whisperPath() { return QCEngines.pathFor("whisper"); }
-  function ollamaExe() { return QCEngines.pathFor("ollama"); }
-  function ollamaModelsDir() { return QCEngines.modelsDir(); }
-  var LLM_MODEL = "qwen2.5:7b";
 
   function bindDrawer(settingsEl, toggleEl) {
     toggleEl.addEventListener("click", function () { settingsEl.classList.toggle("open"); });
@@ -680,7 +685,7 @@
       if (!res.clips || res.clips.length === 0) { throw new Error("No audio clips with media on the sequence."); }
 
       if (cfg.detect === "ai") {
-        // Content-based: transcribe, then ask the local AI for the key moments.
+        // Content-based: transcribe, then ask Claude for the key moments.
         setStatus("Transcribing the interview…", "busy");
         return QCAudio.transcribeSegments({
           whisperPath: whisperPath(), ffmpegPath: ffmpegPath(), clips: res.clips, model: "small.en"
@@ -695,10 +700,9 @@
               return QCAi.parseHighlights(reply, segs);
             });
           }
-          setStatus(bz.brain === "claude-api" ? "Asking Claude where to punch in…" : "Asking the local AI where to punch in…", "busy");
+          setStatus("Asking Claude where to punch in…", "busy");
           return QCAi.findHighlights({
             brain: bz.brain, apiKey: bz.apiKey,
-            ollamaExe: ollamaExe(), modelsDir: ollamaModelsDir(), model: LLM_MODEL,
             segments: segs, count: count, context: aiContext()
           });
         }).then(function (highlights) {
@@ -1136,7 +1140,7 @@
   });
 
   /* ===================================================================
-   * HIGHLIGHTS TAB — transcribe, ask the local AI for the best moments.
+   * HIGHLIGHTS TAB — transcribe, ask Claude for the best moments.
    * =================================================================== */
   var HL_DEFAULTS = { count: 5, quality: "small.en" };
   var HL_KEY = "quietcut.highlights.v1";
@@ -1237,10 +1241,9 @@
           return QCAi.parseHighlights(reply, segments);
         });
       }
-      setStatus(b.brain === "claude-api" ? "Asking Claude for the best parts…" : "Asking the local AI for the best parts… (first run loads the model)", "busy");
+      setStatus("Asking Claude for the best parts…", "busy");
       return QCAi.findHighlights({
         brain: b.brain, apiKey: b.apiKey,
-        ollamaExe: ollamaExe(), modelsDir: ollamaModelsDir(), model: LLM_MODEL,
         segments: segments, count: cfg.count, context: aiContext()
       });
     }).then(function (items) {
@@ -1384,10 +1387,9 @@
           return QCAi.parseTranscriptEdits(reply, segments);
         });
       }
-      setStatus(b.brain === "claude-api" ? "Asking Claude what to cut…" : "Asking the local AI what to cut… (first run loads the model)", "busy");
+      setStatus("Asking Claude what to cut…", "busy");
       return QCAi.findTranscriptEdits({
         brain: b.brain, apiKey: b.apiKey,
-        ollamaExe: ollamaExe(), modelsDir: ollamaModelsDir(), model: LLM_MODEL,
         segments: segments, aggressiveness: aggro, context: aiContext()
       });
     }).then(function (cuts) {
@@ -1665,10 +1667,9 @@
             got = manualClaude(QCAi.buildTranscriptEditPrompt(t.segments, aggro, aiContext()),
               function (reply) { return QCAi.parseTranscriptEdits(reply, t.segments); });
           } else {
-            setStatus(b.brain === "claude-api" ? "Asking Claude what to cut…" : "Asking the local AI what to cut…", "busy");
+            setStatus("Asking Claude what to cut…", "busy");
             got = QCAi.findTranscriptEdits({
-              brain: b.brain, apiKey: b.apiKey, ollamaExe: ollamaExe(), modelsDir: ollamaModelsDir(),
-              model: LLM_MODEL, segments: t.segments, aggressiveness: aggro, context: aiContext()
+              brain: b.brain, apiKey: b.apiKey, segments: t.segments, aggressiveness: aggro, context: aiContext()
             });
           }
           return got.then(function (cuts) {
@@ -1854,10 +1855,9 @@
           return QCAi.parseVoxPop(reply, usable);
         });
       }
-      setStatus(b.brain === "claude-api" ? "Asking Claude to build the montage…" : "Asking the local AI to build the montage…", "busy");
+      setStatus("Asking Claude to build the montage…", "busy");
       return QCAi.findVoxPop({
         brain: b.brain, apiKey: b.apiKey,
-        ollamaExe: ollamaExe(), modelsDir: ollamaModelsDir(), model: LLM_MODEL,
         clips: usable, context: aiContext()
       });
     }).then(function (items) {
@@ -2048,10 +2048,9 @@
         return QCAi.parseStory(reply, usable);
       });
     }
-    setStatus(b.brain === "claude-api" ? "Asking Claude to shape the story…" : "Asking the local AI to shape the story…", "busy");
+    setStatus("Asking Claude to shape the story…", "busy");
     return QCAi.findStory({
       brain: b.brain, apiKey: b.apiKey,
-      ollamaExe: ollamaExe(), modelsDir: ollamaModelsDir(), model: LLM_MODEL,
       clips: usable, context: aiContext(), pace: stEls.pace.value
     });
   }
@@ -2482,10 +2481,9 @@
         return QCAi.parseHooks(reply, usable);
       });
     }
-    setStatus(brain === "claude-api" ? "Asking Claude for the hooks…" : "Asking the local AI for the hooks…", "busy");
+    setStatus("Asking Claude for the hooks…", "busy");
     return QCAi.findHooks({
       brain: brain, apiKey: brainGet().apiKey, // shared key, only used on claude-api
-      ollamaExe: ollamaExe(), modelsDir: ollamaModelsDir(), model: LLM_MODEL,
       clips: usable, context: aiContext(), perClip: hkEls.perClip.value
     });
   }
@@ -2727,13 +2725,13 @@
     editBtn: document.getElementById("spEditBtn")
   };
 
-  // Speaker has its OWN brain setting (default local/qwen), independent of the
-  // shared brain — name/title extraction is light work that shouldn't hit Claude.
+  // Speaker keeps its OWN brain setting, independent of the shared one, so a
+  // quick name lookup can use a different route than a long editorial pass.
   function spLoad() {
     var v = {};
     try { v = JSON.parse(localStorage.getItem(SP_KEY)) || {}; } catch (e) {}
     if (v.quality) { spEls.quality.value = v.quality; }
-    spEls.brain.value = v.brain || "local";
+    spEls.brain.value = (!v.brain || v.brain === "local") ? "manual" : v.brain;
   }
   function spSave() {
     try { localStorage.setItem(SP_KEY, JSON.stringify({ quality: spEls.quality.value, brain: spEls.brain.value })); } catch (e) {}
@@ -2804,10 +2802,10 @@
     setStatus("Found " + sp.people.length + " person(s). Edit if needed, then Find on LinkedIn.", "ok");
   }
 
-  // Ask the Speaker tab's own brain (default local/qwen) to pull people from a
-  // set of transcript segments.
+  // Ask the Speaker tab's own brain to pull people from a set of transcript
+  // segments.
   function spExtract(segments) {
-    var brain = (spEls.brain && spEls.brain.value) || "local";
+    var brain = (spEls.brain && spEls.brain.value) || "manual";
     sp.manual = null;
     if (brain === "manual") {
       setStatus("Copy the prompt into claude.ai, then paste the reply.", "busy");
@@ -2818,10 +2816,9 @@
         return QCAi.parseSpeakers(reply);
       });
     }
-    setStatus(brain === "claude-api" ? "Asking Claude who's speaking…" : "Reading names with the local AI (qwen)…", "busy");
+    setStatus("Asking Claude who's speaking…", "busy");
     return QCAi.findSpeakers({
       brain: brain, apiKey: brainGet().apiKey, // reuse the shared key only if switched to API
-      ollamaExe: ollamaExe(), modelsDir: ollamaModelsDir(), model: LLM_MODEL,
       segments: segments, context: aiContext()
     });
   }
@@ -2902,14 +2899,6 @@
   hkLoad();
   brainInit();
   contextInit();
-  // First-run model download: when a local scan needs qwen and it isn't installed,
-  // Ollama fetches it once; show the progress so a big one-time download is clear.
-  QCAi.onPullProgress(function (status, pct) {
-    var msg = "First-time setup: downloading the local AI model (one time, ~4.7 GB)";
-    if (pct != null) { msg += " — " + pct + "%"; }
-    else if (status) { msg += " — " + status; }
-    setStatus(msg + "…", "busy");
-  });
   refreshActiveName();
   host("ping()").then(function (res) {
     if (!res.ok) {
@@ -2934,11 +2923,5 @@
     }
 
     setStatus("Ready — connected to " + (res.app || "Premiere") + ". Open a sequence to begin.");
-    // Warm the local model in the background so the first local-AI call (Speaker,
-    // Cleanup, etc.) is instant instead of waiting on a cold model load. Skipped
-    // entirely when Ollama isn't installed, so it can't trigger a download.
-    if (QCEngines.have("ollama")) {
-      QCAi.preloadModel({ ollamaExe: ollamaExe(), modelsDir: ollamaModelsDir(), model: LLM_MODEL });
-    }
   });
 })();

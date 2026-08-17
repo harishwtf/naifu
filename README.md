@@ -68,10 +68,10 @@ bash setup.command          # or double-click it in Finder;  --uninstall to undo
 
 It enables CEP debug mode (`defaults write com.adobe.CSXS.N PlayerDebugMode 1`),
 symlinks the folder into `~/Library/Application Support/Adobe/CEP/extensions/…`, and
-downloads a macOS FFmpeg build into `bin/`. You still need to drop macOS builds of the
-two AI **engine binaries** into `bin/` (Whisper at `bin/Faster-Whisper-XXL/whisper-faster`
-— adjust `whisperPath()` if your build differs — and Ollama at `bin/ollama/ollama`); the
-big **model weights are not bundled** and download on first use (see the Local brain note).
+downloads a macOS FFmpeg build into `bin/`. Whisper you supply yourself at
+`bin/Faster-Whisper-XXL/whisper-faster` (adjust `whisperPath()` if your build differs),
+or let the panel's Setup tab fetch it. There is no local AI model to install — both
+brains are Claude.
 
 Two macOS-specific things the script handles for you:
 
@@ -79,12 +79,12 @@ Two macOS-specific things the script handles for you:
   `arm64` for Apple Silicon, `amd64` for Intel — from martin-riedl.de, which
   publishes both behind a stable "latest" URL. (evermeet.cx, the usual source, is
   **Intel-only** and has said it won't ship ARM builds; on an M-series Mac that
-  binary only runs if Rosetta 2 happens to be installed.) Whisper and Ollama
-  builds you supply must match your CPU too.
+  binary only runs if Rosetta 2 happens to be installed.) A Whisper build you
+  supply must match your CPU too.
 - **Gatekeeper.** Unsigned binaries are killed on sight on Apple Silicon, so
   setup runs `xattr -cr` + `codesign -s -` (ad-hoc sign) on the FFmpeg it
-  downloads *and* on any Whisper/Ollama binary it finds in `bin/`. If you add
-  those binaries after running setup, just run setup again to clear them.
+  downloads *and* on any Whisper binary it finds in `bin/`. If you add that
+  binary after running setup, just run setup again to clear it.
 
 *(macOS setup is written but not yet verified on real hardware — please report anything off.)*
 
@@ -124,14 +124,14 @@ macOS     ~/Library/Application Support/Naifu/engines/
 ```
 
 That location survives updating or reinstalling Naifu, so **an update never costs
-another download**. The qwen model weights moved there too — they used to sit in the
-extension's `bin/`, which a reinstall would have wiped.
+another download** — including the speech models Whisper fetches itself on first
+transcribe, which land inside its folder there.
 
 The rule the module enforces: **nothing touches the network unless a binary is
 genuinely missing.** `status()` is a pure filesystem check that runs at startup;
 `install()` returns immediately if the file is already on disk. Once you're set up,
 Naifu makes zero network calls for engines — it also won't preload the local model
-if Ollama isn't installed, so that can't trigger a fetch either. Verified by a test
+Verified by a test
 that hands the module a network-blocking `https` and asserts **0 calls** across
 install-present, dev-checkout, post-reinstall and adopt scenarios.
 
@@ -144,21 +144,19 @@ an existing dev setup with 13 GB in `bin/` keeps working and downloads nothing.
 |---|---|---|---|
 | FFmpeg | 90 MB | 0.18 GB | |
 | Whisper | 1.36 GB `.7z` | **6.4 GB** | unpacks to ~4.4 GB of CUDA/runtime, **plus ~2 GB of speech models it fetches itself** on first transcribe |
-| Ollama | 1.39 GB | 1.8 GB | |
-| qwen weights | 4.36 GB | 4.36 GB | pulled on first use of the local brain |
-| **Total** | **~2.8 GB up front** | **~12.8 GB** | the rest arrives lazily, as you use each feature |
+| **Total** | **~1.4 GB up front** | **~6.5 GB** | the speech models arrive on first transcribe |
 
-Using **Claude (manual)** instead of the local brain skips Ollama *and* qwen —
-about 6 GB saved. Every lazy download lands in the same persistent store, so those
-are one-time too.
+There is **no local AI model** — dropping it cut the install from ~13 GB to ~6.5 GB.
+Both brains are Claude, and neither installs anything. Whisper stays because only it
+produces word-level timings; Claude cannot return timecodes. The speech-model download
+lands in the same persistent store, so it is one-time too.
 
 The **Setup tab** lists each engine (present / missing, download *and* on-disk size,
 what it's for, and what it'll fetch later),
 downloads only what's missing on an explicit click, and unpacks everything with
 `bsdtar`/libarchive — one code path for `.zip`, `.tar.gz` *and* the `.7z` Whisper
 ships as. On macOS every installed binary is `xattr -cr` + ad-hoc `codesign`ed, or
-Gatekeeper would kill it. Ollama is marked **optional** — skip it entirely if you
-only use Claude (manual).
+Gatekeeper would kill it.
 
 > **macOS Whisper caveat:** Purfview publishes **no current macOS build** of
 > Faster-Whisper-XXL — Windows and Linux only. The Mac option is their last release
@@ -327,17 +325,21 @@ setup.ps1             install / uninstall developer setup (+ FFmpeg download)
     *where* the interesting beats are.
 - [x] **Phase 3** — filler + repetition removal (local Whisper word timestamps → review → cut).
 - [ ] **Phase 4** — Highlights / "best parts" (transcript → AI judges content → review). In testing.
-  - Brains (selectable in Highlights + Zoom settings; shared):
-    - **Local (qwen2.5)** — free, offline, automatic. **Downloaded on demand** — the model
-      weights are NOT bundled; the first time you run a local-AI feature, Ollama pulls
-      qwen2.5:7b (~4.7 GB, one time) via `QCAi.runLocal` → `pullModel`, with live progress in
-      the status bar (`onPullProgress`). Once present it's **preloaded on panel open**
-      (`preloadModel`, 30-min keep-alive) so calls are instant. Only the ~small Ollama binary
-      needs to ship in `bin/`.
-    - **Claude (manual · claude.ai)** — real Claude on your Max plan, no API key: panel
-      builds the prompt, you copy it into claude.ai and paste the reply back. Same model
-      quality; two copy-pastes per run. Best for Highlights / Vox Pop.
-    - **Claude (API key)** — automatic Claude, pay-per-use (pennies of text).
+  - Brains — **both are Claude**, selectable per tab:
+    - **Claude (manual · claude.ai)** — the default. Real Claude on the plan you already
+      pay for, no API key: the panel builds the prompt, you copy it into claude.ai and
+      paste the reply back. Two copy-pastes per run, and **nothing to install**.
+    - **Claude (API key)** — the same prompts sent automatically, pay-per-use
+      (pennies of text).
+  - **There is no local model, deliberately.** A local brain (Ollama + qwen2.5:7b) was
+    built and then removed: it cost ~6 GB of install — Ollama's runtime plus the weights —
+    for judgement clearly worse than Claude's, on exactly the tasks (hooks, narrative,
+    what-to-cut) where judgement *is* the product. That install cost was the biggest
+    liability in a ~$10 tool. Dropping it took the footprint from ~13 GB to ~6.5 GB.
+    Saved preferences that said `local` migrate to manual on load.
+  - **Whisper is not optional and never will be.** Transcription is the one job Claude
+    can't do: the word-level timestamps every editing feature is built on come only from
+    Whisper, and Premiere's own transcript isn't readable from ExtendScript.
   - Subscription-OAuth ("sign in with your Max plan") is **not** offered — Anthropic bans it
     for third-party tools. The manual/claude.ai route is the sanctioned way to use the plan.
   - **Context for the AI** (shared across every AI tab) — one optional free-text box where
@@ -460,10 +462,9 @@ setup.ps1             install / uninstall developer setup (+ FFmpeg download)
     reason and the timecode + duration; click one to move the playhead there.
 - [ ] **Phase 9** — Speaker → LinkedIn. In testing. The AI pulls each person's **name,
   company, and job title** from how they introduce themselves (uses the shared AI-context
-  box; manual-Claude editable reply supported). Has its **own brain setting, default Local
-  (qwen)** — independent of the shared brain, because name/title extraction is light work
-  that shouldn't round-trip to Claude (still switchable to Claude per-tab if needed; API mode
-  reuses the shared key). Each result is an **editable** card (the
+  box; manual-Claude editable reply supported). Has its **own brain setting**, independent of
+  the shared one, so a quick name lookup can take a different route than a long editorial
+  pass (API mode reuses the shared key). Each result is an **editable** card (the
   AI/Whisper can mishear names) with a **Find on LinkedIn** button that opens a Google search
   (`"Name" Company Title LinkedIn`) in the default browser. Read-only / lookup feature — it
   never touches the timeline.

@@ -1,15 +1,15 @@
 /*
  * Naifu - engine store.
  *
- * The heavy engines (FFmpeg, Whisper, Ollama) are ~2-3 GB and can't ship inside
+ * The engines (FFmpeg and Whisper) are ~1.4 GB of downloads and can't ship inside
  * a signed .zxp, so they're fetched ONCE and kept OUTSIDE the extension folder:
  *
  *     Windows   %APPDATA%\Naifu\engines\
  *     macOS     ~/Library/Application Support/Naifu/engines/
  *
  * Living outside the panel means updating or reinstalling Naifu never costs the
- * user another download. The AI model weights live there too, for the same
- * reason (they used to sit in the extension's bin/, which a reinstall wipes).
+ * user another download — including the speech models Whisper fetches itself on
+ * first transcribe, which land inside its folder here.
  *
  * The rule this module exists to enforce: NOTHING here touches the network
  * unless a binary is genuinely missing. status() is a pure filesystem check, and
@@ -78,22 +78,12 @@ var QCEngines = (function () {
           ? "https://github.com/Purfview/whisper-standalone-win/releases/download/faster-whisper/Whisper-Faster_r186.1_macOS-x86-64.zip"
           : "https://github.com/Purfview/whisper-standalone-win/releases/download/Faster-Whisper-XXL/Faster-Whisper-XXL_r245.4_windows.7z",
         legacy: mac   // flagged in the UI so the user knows what they're getting
-      },
-      ollama: {
-        label: "Ollama (local AI)",
-        why: "Runs the local brain. Skip it if you only use Claude (manual) — that needs no install.",
-        destDir: "ollama",
-        binName: mac ? "ollama" : "ollama.exe",
-        multi: true,
-        sizeMb: mac ? 146 : (arm ? 200 : 1392),
-        diskMb: mac ? 190 : (arm ? 260 : 1820),
-        lazyMb: 4400,
-        lazyNote: "pulls the qwen model (~4.4 GB) the first time you use the local brain",
-        url: mac
-          ? "https://github.com/ollama/ollama/releases/latest/download/ollama-darwin.tgz"
-          : ("https://github.com/ollama/ollama/releases/latest/download/ollama-windows-" + (arm ? "arm64" : "amd64") + ".zip"),
-        optional: true
       }
+      // No local LLM here on purpose. Both brains are Claude — manual
+      // (copy/paste, no key) and API key — and neither installs anything. That
+      // is what keeps the footprint at ~6.5 GB instead of ~13 GB. Whisper stays
+      // because only it produces the word-level timings the editing features
+      // are built on; Claude can't return timecodes.
     };
   }
 
@@ -115,15 +105,6 @@ var QCEngines = (function () {
 
   function have(name) { return exists(pathFor(name)); }
 
-  /** Model weights live beside the engines so a reinstall never re-downloads them. */
-  function modelsDir() {
-    var inRepo = join(cfg.extRoot, "bin", "ollama-models");
-    if (exists(inRepo)) { return inRepo; }
-    var dir = join(cfg.userRoot, "ollama-models");
-    mkdirp(dir);
-    return dir;
-  }
-
   /** Pure filesystem check — never hits the network. */
   function status() {
     var d = defs(), out = [];
@@ -142,7 +123,7 @@ var QCEngines = (function () {
     return out;
   }
 
-  /** True when everything required is present (Ollama is optional). */
+  /** True when every required engine is present. */
   function ready() {
     return status().every(function (s) { return s.ok || s.optional; });
   }
@@ -371,7 +352,6 @@ var QCEngines = (function () {
     have: have,
     status: status,
     ready: ready,
-    modelsDir: modelsDir,
     install: install,
     adopt: adopt
   };

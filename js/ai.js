@@ -1,11 +1,21 @@
 /*
- * Naifu - local AI brain (Phase 4: Highlights / "best parts").
+ * Naifu - the AI brain.
  *
- * Talks to a local Ollama server (started on demand from the bundled portable
- * ollama.exe) and asks a language model to read the interview transcript and
- * pick the strongest moments. This is content-based, so it works regardless of
- * mic type/movement — unlike loudness. A future "Sign in with Claude" brain
- * will swap in here behind the same findHighlights() interface.
+ * Reads a transcript and makes the editorial calls: best moments, what to cut,
+ * the montage order, the narrative arc, the hook. Content-based, so it works
+ * regardless of mic type or movement — unlike loudness.
+ *
+ * Two brains, both Claude:
+ *   manual    — the panel builds the prompt, you paste it into claude.ai and
+ *               paste the reply back. Uses the plan you already pay for, needs
+ *               no key and no install. Driven from main.js, not here.
+ *   claude-api— same prompts, sent automatically with your API key. That's what
+ *               the find*() functions below do.
+ *
+ * There is deliberately no local model. A local brain meant shipping Ollama plus
+ * ~6 GB of weights for judgement noticeably worse than Claude's — the install
+ * cost was the product's biggest liability. Whisper stays: transcription is the
+ * one job Claude can't do, since only Whisper produces word-level timings.
  */
 var QCAi = (function () {
   "use strict";
@@ -15,57 +25,7 @@ var QCAi = (function () {
     (typeof cep_node !== "undefined" && cep_node.require) ? cep_node.require :
     null;
 
-  var HOST = "127.0.0.1";
-  var PORT = 11434;
-
   function nodeAvailable() { return !!nodeRequire; }
-
-  function httpGet(path) {
-    return new Promise(function (resolve, reject) {
-      var http = nodeRequire("http");
-      var req = http.get({ host: HOST, port: PORT, path: path, timeout: 2500 }, function (res) {
-        var b = ""; res.on("data", function (c) { b += c; }); res.on("end", function () { resolve({ status: res.statusCode, body: b }); });
-      });
-      req.on("error", reject);
-      req.on("timeout", function () { req.destroy(); reject(new Error("timeout")); });
-    });
-  }
-
-  function serverUp() {
-    return httpGet("/api/tags").then(function () { return true; }).catch(function () { return false; });
-  }
-
-  /** Make sure the Ollama server is running; start it from ollamaExe if not. */
-  function ensureServer(ollamaExe, modelsDir) {
-    return serverUp().then(function (up) {
-      if (up) { return true; }
-      var cp = nodeRequire("child_process");
-      var env = {};
-      for (var k in process.env) { env[k] = process.env[k]; }
-      env.OLLAMA_MODELS = modelsDir;
-      env.OLLAMA_HOST = HOST + ":" + PORT;
-      try {
-        var child = cp.spawn(ollamaExe, ["serve"], { detached: true, stdio: "ignore", env: env });
-        child.unref();
-      } catch (e) {
-        if (e && e.code === "ENOENT") {
-          throw new Error("The local AI (Ollama) isn't installed. See the README to add it, or switch the brain to Claude (manual · claude.ai) — no install needed.");
-        }
-        throw new Error("Could not start the local AI (Ollama): " + e.message);
-      }
-      // Poll until it answers (first start loads libs; allow ~25s).
-      return new Promise(function (resolve, reject) {
-        var tries = 0;
-        (function poll() {
-          serverUp().then(function (u) {
-            if (u) { resolve(true); return; }
-            if (++tries > 25) { reject(new Error("Local AI server did not start in time.")); return; }
-            setTimeout(poll, 1000);
-          });
-        })();
-      });
-    });
-  }
 
   /** Pull a JSON object out of a model response (tolerates prose/code fences). */
   function extractJson(text) {
@@ -119,117 +79,15 @@ var QCAi = (function () {
   }
 
   /**
-   * Warm a model into memory so the first real call is instant — fired when the
-   * panel opens. Best-effort and silent: resolves false on any problem. An empty
-   * prompt makes Ollama load the model without generating; keep_alive holds it.
+   * Send a prompt to Claude with the user's API key. The manual brain never
+   * reaches here — main.js drives that with the copy/paste overlay.
    */
-  function preloadModel(cfg) {
-    if (!nodeAvailable()) { return Promise.resolve(false); }
-    return ensureServer(cfg.ollamaExe, cfg.modelsDir).then(function () {
-      return new Promise(function (resolve) {
-        var http = nodeRequire("http");
-        var payload = JSON.stringify({ model: cfg.model, prompt: "", keep_alive: "30m" });
-        var req = http.request({
-          host: HOST, port: PORT, path: "/api/generate", method: "POST",
-          headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) }
-        }, function (res) {
-          res.on("data", function () {}); res.on("end", function () { resolve(true); });
-        });
-        req.on("error", function () { resolve(false); });
-        req.write(payload); req.end();
-      });
-    }).catch(function () { return false; });
-  }
-
-  /** One-shot generate with JSON output forced. */
-  function generate(model, prompt) {
-    return new Promise(function (resolve, reject) {
-      var http = nodeRequire("http");
-      var payload = JSON.stringify({
-        model: model, prompt: prompt, stream: false, format: "json",
-        options: { temperature: 0.2 }
-      });
-      var req = http.request({
-        host: HOST, port: PORT, path: "/api/generate", method: "POST",
-        headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) }
-      }, function (res) {
-        var b = ""; res.on("data", function (c) { b += c; });
-        res.on("end", function () {
-          try { resolve(JSON.parse(b).response || ""); }
-          catch (e) { reject(new Error("Local AI returned an unreadable response.")); }
-        });
-      });
-      req.on("error", reject);
-      req.write(payload); req.end();
-    });
-  }
-
-  /* ---------- on-demand model download (so we don't ship 5 GB of weights) ---------- */
-
-  // The panel reports pull progress through this (set once by main.js).
-  var pullProgressCb = null;
-  function onPullProgress(fn) { pullProgressCb = fn; }
-
-  /** Is `model` already downloaded? Asks Ollama's /api/tags. */
-  function modelPresent(model) {
-    return httpGet("/api/tags").then(function (r) {
-      try {
-        var list = JSON.parse(r.body).models || [];
-        var base = String(model).split(":")[0];
-        for (var i = 0; i < list.length; i++) {
-          var nm = list[i].name || list[i].model || "";
-          if (nm === model || nm.split(":")[0] === base) { return true; }
-        }
-      } catch (e) {}
-      return false;
-    }).catch(function () { return false; });
-  }
-
-  /** Download `model` via Ollama, streaming {status, percent} to onProgress. */
-  function pullModel(model, onProgress) {
-    return new Promise(function (resolve, reject) {
-      var http = nodeRequire("http");
-      var payload = JSON.stringify({ model: model, stream: true });
-      var req = http.request({
-        host: HOST, port: PORT, path: "/api/pull", method: "POST",
-        headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) }
-      }, function (res) {
-        var buf = "";
-        res.on("data", function (c) {
-          buf += c;
-          var lines = buf.split("\n"); buf = lines.pop();
-          for (var i = 0; i < lines.length; i++) {
-            if (!lines[i].trim()) { continue; }
-            try {
-              var o = JSON.parse(lines[i]);
-              if (o.error) { reject(new Error(o.error)); return; }
-              if (onProgress) {
-                var pct = (o.total && o.completed) ? Math.round(o.completed / o.total * 100) : null;
-                onProgress(o.status || "", pct);
-              }
-            } catch (e) {}
-          }
-        });
-        res.on("end", function () { resolve(true); });
-      });
-      req.on("error", reject);
-      req.write(payload); req.end();
-    });
-  }
-
-  /**
-   * Run a local generation, downloading the model first if it isn't installed
-   * (the model is fetched on first use, not bundled). Shared by every local brain.
-   */
-  function runLocal(cfg, prompt) {
-    return ensureServer(cfg.ollamaExe, cfg.modelsDir)
-      .then(function () { return modelPresent(cfg.model); })
-      .then(function (present) {
-        if (present) { return true; }
-        if (pullProgressCb) { pullProgressCb("starting the download", null); }
-        return pullModel(cfg.model, pullProgressCb);
-      })
-      .then(function () { return generate(cfg.model, prompt); });
+  function runClaude(cfg, prompt) {
+    if (!cfg || !cfg.apiKey) {
+      return Promise.reject(new Error(
+        "Enter your Claude API key in Settings, or switch the brain to Claude (manual · claude.ai) — that one needs no key."));
+    }
+    return generateClaudeApi(prompt, cfg.apiKey);
   }
 
   /**
@@ -278,26 +136,15 @@ var QCAi = (function () {
   }
 
   /**
-   * Ask the chosen brain for the best moments in a transcript.
+   * Ask Claude for the best moments in a transcript.
    *
-   * @param {object} cfg
-   *   segments [{text,start,end}], count,
-   *   brain: 'local' | 'claude-api',
-   *   apiKey (for claude-api), ollamaExe/modelsDir/model (for local)
+   * @param {object} cfg  segments [{text,start,end}], count, apiKey, context
    * @returns {Promise<Array<{start,end,quote,reason}>>}
    */
   function findHighlights(cfg) {
     var prompt = buildHighlightPrompt(cfg.segments, cfg.count || 5, cfg.context);
-    var gen;
-    if (cfg.brain === "claude-api") {
-      if (!cfg.apiKey) {
-        return Promise.reject(new Error("Enter your Claude API key in Settings (or switch the brain to Local)."));
-      }
-      gen = generateClaudeApi(prompt, cfg.apiKey);
-    } else {
-      gen = runLocal(cfg, prompt);
-    }
-    return gen.then(function (resp) { return parseHighlights(resp, cfg.segments); });
+    return runClaude(cfg, prompt)
+      .then(function (resp) { return parseHighlights(resp, cfg.segments); });
   }
 
   /* ---------- Cleanup (AI transcript edit: what to cut) ---------- */
@@ -356,14 +203,7 @@ var QCAi = (function () {
 
   function findTranscriptEdits(cfg) {
     var prompt = buildTranscriptEditPrompt(cfg.segments, cfg.aggressiveness, cfg.context);
-    var gen;
-    if (cfg.brain === "claude-api") {
-      if (!cfg.apiKey) { return Promise.reject(new Error("Enter your Claude API key (or use the manual brain).")); }
-      gen = generateClaudeApi(prompt, cfg.apiKey);
-    } else {
-      gen = runLocal(cfg, prompt);
-    }
-    return gen.then(function (resp) { return parseTranscriptEdits(resp, cfg.segments); });
+    return runClaude(cfg, prompt).then(function (resp) { return parseTranscriptEdits(resp, cfg.segments); });
   }
 
   /* ---------- Vox Pop (multi-interview compilation) ---------- */
@@ -441,14 +281,7 @@ var QCAi = (function () {
 
   function findVoxPop(cfg) {
     var prompt = buildVoxPopPrompt(cfg.clips, cfg.context);
-    var gen;
-    if (cfg.brain === "claude-api") {
-      if (!cfg.apiKey) { return Promise.reject(new Error("Enter your Claude API key (or use the manual brain).")); }
-      gen = generateClaudeApi(prompt, cfg.apiKey);
-    } else {
-      gen = runLocal(cfg, prompt);
-    }
-    return gen.then(function (resp) { return parseVoxPop(resp, cfg.clips); });
+    return runClaude(cfg, prompt).then(function (resp) { return parseVoxPop(resp, cfg.clips); });
   }
 
   /* ---------- Story / Documentary (narrative assembled from interview(s)) ---------- */
@@ -514,14 +347,7 @@ var QCAi = (function () {
 
   function findStory(cfg) {
     var prompt = buildStoryPrompt(cfg.clips, cfg.context, cfg.pace);
-    var gen;
-    if (cfg.brain === "claude-api") {
-      if (!cfg.apiKey) { return Promise.reject(new Error("Enter your Claude API key (or use the manual brain).")); }
-      gen = generateClaudeApi(prompt, cfg.apiKey);
-    } else {
-      gen = runLocal(cfg, prompt);
-    }
-    return gen.then(function (resp) { return parseStory(resp, cfg.clips); });
+    return runClaude(cfg, prompt).then(function (resp) { return parseStory(resp, cfg.clips); });
   }
 
   /* ---------- Hooks (juiciest moment inside each social short) ---------- */
@@ -582,7 +408,7 @@ var QCAi = (function () {
       "1. CONTRADICTION / pattern interrupt — a statement that violates what the viewer expects. \"I made more money after I stopped posting daily.\"\n" +
       "2. HARD NUMBER — a specific figure with stakes attached. \"I lost eight hundred thousand dollars in one afternoon.\" Numbers read as proof; vague scale reads as noise.\n" +
       "3. CONFESSION / high stakes — an admission with a real cost, risk or consequence named out loud. \"I nearly went bankrupt hiding this from my co-founder.\"\n" +
-      "4. NARROW CURIOSITY GAP — opens ONE specific question the rest of the clip answers. \"Nobody on my team noticed for three days.\" A gap only works if it's specific and closable; a broad gap (\"everyone's doing it wrong\") fails, because the viewer can't tell what they'd even find out.\n" +
+      "4. NARROW CURIOSITY GAP (an open loop) — opens ONE specific question the rest of the clip answers. \"Nobody on my team noticed for three days.\" A gap only works if it's specific and closable; a broad gap (\"everyone's doing it wrong\") fails, because the viewer can't tell what they'd even find out.\n" +
       "5. HOT TAKE / punchline — a blunt, quotable, argue-with-me opinion, or a genuinely funny line.\n\n" +
 
       "TEST EVERY CANDIDATE AGAINST ALL SIX — if it fails one, it is not your pick:\n" +
@@ -721,14 +547,7 @@ var QCAi = (function () {
 
   function findHooks(cfg) {
     var prompt = buildHookPrompt(cfg.clips, cfg.context, cfg.perClip);
-    var gen;
-    if (cfg.brain === "claude-api") {
-      if (!cfg.apiKey) { return Promise.reject(new Error("Enter your Claude API key (or use the manual brain).")); }
-      gen = generateClaudeApi(prompt, cfg.apiKey);
-    } else {
-      gen = runLocal(cfg, prompt);
-    }
-    return gen.then(function (resp) { return parseHooks(resp, cfg.clips); });
+    return runClaude(cfg, prompt).then(function (resp) { return parseHooks(resp, cfg.clips); });
   }
 
   /* ---------- Speaker details (name / company / title for LinkedIn lookup) ---------- */
@@ -763,22 +582,11 @@ var QCAi = (function () {
 
   function findSpeakers(cfg) {
     var prompt = buildSpeakerPrompt(cfg.segments, cfg.context);
-    var gen;
-    if (cfg.brain === "claude-api") {
-      if (!cfg.apiKey) { return Promise.reject(new Error("Enter your Claude API key (or use the manual brain).")); }
-      gen = generateClaudeApi(prompt, cfg.apiKey);
-    } else {
-      gen = runLocal(cfg, prompt);
-    }
-    return gen.then(function (resp) { return parseSpeakers(resp); });
+    return runClaude(cfg, prompt).then(function (resp) { return parseSpeakers(resp); });
   }
 
   return {
     nodeAvailable: nodeAvailable,
-    ensureServer: ensureServer,
-    onPullProgress: onPullProgress,
-    modelPresent: modelPresent,
-    pullModel: pullModel,
     findHighlights: findHighlights,
     buildHighlightPrompt: buildHighlightPrompt,
     parseHighlights: parseHighlights,
@@ -798,7 +606,6 @@ var QCAi = (function () {
     findHooks: findHooks,
     buildSpeakerPrompt: buildSpeakerPrompt,
     parseSpeakers: parseSpeakers,
-    findSpeakers: findSpeakers,
-    preloadModel: preloadModel
+    findSpeakers: findSpeakers
   };
 })();

@@ -291,7 +291,6 @@
             <div><label for="zBrain">AI brain</label>
               <span class="hint">Used when Detect by = AI content</span></div>
             <select id="zBrain" class="qc-brain">
-              <option value="local">Local (qwen)</option>
               <option value="manual">Claude (manual · claude.ai)</option>
               <option value="claude-api">Claude (API key)</option>
             </select>
@@ -505,7 +504,6 @@
             <div><label for="hBrain">AI brain</label>
               <span class="hint">Local = free/offline · Claude = sharper</span></div>
             <select id="hBrain" class="qc-brain">
-              <option value="local">Local (qwen)</option>
               <option value="manual">Claude (manual · claude.ai)</option>
               <option value="claude-api">Claude (API key)</option>
             </select>
@@ -533,7 +531,7 @@
       </div>
 
       <div class="status" style="margin-top:4px;" id="hHint">
-        Reads what's said (not how loud) — mic-independent. Local AI, fully offline.
+        Reads what's said (not how loud) — mic-independent.
       </div>
     </div>
 
@@ -550,7 +548,6 @@
             <div><label for="clBrain">AI brain</label>
               <span class="hint">Claude (manual) recommended for best judgment</span></div>
             <select id="clBrain" class="qc-brain">
-              <option value="local">Local (qwen)</option>
               <option value="manual">Claude (manual · claude.ai)</option>
               <option value="claude-api">Claude (API key)</option>
             </select>
@@ -622,7 +619,6 @@
             <div><label for="qcBrain">AI brain</label>
               <span class="hint">For AI cleanup · Claude (manual) recommended</span></div>
             <select id="qcBrain" class="qc-brain">
-              <option value="local">Local (qwen)</option>
               <option value="manual">Claude (manual · claude.ai)</option>
               <option value="claude-api">Claude (API key)</option>
             </select>
@@ -692,7 +688,6 @@
             <div><label for="vpBrain">AI brain</label>
               <span class="hint">Claude (manual) recommended for best judgment</span></div>
             <select id="vpBrain" class="qc-brain">
-              <option value="local">Local (qwen)</option>
               <option value="manual">Claude (manual · claude.ai)</option>
               <option value="claude-api">Claude (API key)</option>
             </select>
@@ -757,7 +752,6 @@
             <div><label for="stBrain">AI brain</label>
               <span class="hint">Claude (manual) recommended — narrative is the hard part</span></div>
             <select id="stBrain" class="qc-brain">
-              <option value="local">Local (qwen)</option>
               <option value="manual">Claude (manual · claude.ai)</option>
               <option value="claude-api">Claude (API key)</option>
             </select>
@@ -834,7 +828,6 @@
             <select id="hkBrain">
               <option value="manual">Claude (manual · claude.ai)</option>
               <option value="claude-api">Claude (API key · shared)</option>
-              <option value="local">Local (qwen)</option>
             </select>
           </div>
           <div class="field-col qc-contextfield">
@@ -902,10 +895,9 @@
         the extension folder, so updating Naifu never re-downloads them — and normal use never
         touches the network for them again.
         <br /><br />
-        Budget <b>~13 GB of disk</b> if you use everything: ~2.8 GB downloads here, and the rest
-        arrives the first time you actually transcribe (Whisper's speech models) or run the local
-        brain (the qwen model). Both land in the same folder below, so they're one-time too.
-        Using Claude (manual) instead of the local brain saves ~6 GB — skip Ollama entirely.
+        Budget <b>~6.5 GB of disk</b>: ~1.4 GB downloads here, and Whisper fetches its speech
+        models (~2 GB) the first time you transcribe. Those land in the same folder below, so
+        they are one-time too. There is no local AI model to install — both brains are Claude.
       </div>
 
       <div class="cut-list" id="enList" style="max-height:340px;"></div>
@@ -1029,9 +1021,8 @@
         <div class="settings-body">
           <div class="field">
             <div><label for="spBrain">AI brain</label>
-              <span class="hint">Local (qwen) by default — light work, no need to use Claude</span></div>
+              <span class="hint">Claude (manual) uses your plan — no key, no install</span></div>
             <select id="spBrain">
-              <option value="local">Local (qwen)</option>
               <option value="manual">Claude (manual · claude.ai)</option>
               <option value="claude-api">Claude (API key · shared)</option>
             </select>

@@ -90,23 +90,24 @@ else
   echo "  FFmpeg installed to bin/ffmpeg"
 fi
 
-# Any Whisper / Ollama binaries the user dropped in by hand carry the same
-# Gatekeeper problem — clear them too so they aren't killed on first run.
-for B in "$BIN_DIR/Faster-Whisper-XXL/whisper-faster" "$BIN_DIR/ollama/ollama"; do
+# A Whisper binary dropped in by hand carries the same Gatekeeper problem —
+# clear it too so it isn't killed on first run.
+for B in "$BIN_DIR/Faster-Whisper-XXL/whisper-faster"; do
   if [ -e "$B" ]; then chmod +x "$B" 2>/dev/null || true; unquarantine "$B"; echo "  Cleared Gatekeeper flags on $(basename "$B")"; fi
 done
 
 cat <<NOTE
 
-FFmpeg is ready. The AI features still need two engine BINARIES in bin/ (macOS builds);
-the big model weights are NOT bundled — the panel downloads them on first use:
-  * Whisper — a faster-whisper binary at:
+FFmpeg is ready. One engine left: WHISPER, which does the transcription every
+editing feature is built on (it's the only thing that produces word-level timings).
+  * Put a faster-whisper binary at:
         bin/Faster-Whisper-XXL/whisper-faster
-      (or edit whisperPath() in js/main.js to point at your build; same CLI flags).
-      Its speech model downloads itself the first time you transcribe.
-  * Ollama  — just the macOS ollama binary at bin/ollama/ollama. The qwen language
-      model (~4.7 GB) downloads automatically inside the panel the first time you run
-      a local-AI feature — no manual pull needed.
+    (or edit whisperPath() in js/main.js for a differently-named build; same CLI
+    flags). Its speech models download themselves the first time you transcribe.
+  * Or just open the panel — the Setup tab fetches it for you, once.
+
+There is NO local AI model to install. Both brains are Claude: manual (paste into
+claude.ai, no key, nothing installed) or your own API key.
 
 Then: fully quit Premiere Pro, reopen a project with a sequence,
       Window menu -> Extensions -> Naifu.
