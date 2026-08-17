@@ -8,6 +8,7 @@ dist/
 ZXPSignCmd*
 *.p12
 *.pfx
+.rnd
 
 # ── Premiere & test artifacts ──
 Adobe Premiere Pro Auto-Save/
