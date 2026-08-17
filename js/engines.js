@@ -137,32 +137,45 @@ var QCEngines = (function () {
       var hops = 0;
 
       function get(u) {
+        // Anything thrown inside the response callback surfaces from Node's HTTP
+        // parser as an opaque "Parse Error: User callback error", so keep our own
+        // handler inside a try/catch and report the real cause.
         var req = https.get(u, { headers: { "User-Agent": "Naifu" } }, function (res) {
-          // GitHub hands off to a CDN; follow it.
-          if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-            res.resume();
-            if (++hops > 5) { reject(new Error("Too many redirects.")); return; }
-            get(res.headers.location);
-            return;
-          }
-          if (res.statusCode !== 200) {
-            res.resume();
-            reject(new Error("Download failed (HTTP " + res.statusCode + ") — " + u));
-            return;
-          }
-          var total = parseInt(res.headers["content-length"], 10) || 0;
-          var got = 0, lastPct = -1;
-          var file = fs.createWriteStream(dest);
-          res.on("data", function (c) {
-            got += c.length;
-            if (onProgress && total) {
-              var pct = Math.floor(got / total * 100);
-              if (pct !== lastPct) { lastPct = pct; onProgress(pct, got, total); }
+          try {
+            if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+              res.resume();
+              if (++hops > 5) { reject(new Error("Too many redirects.")); return; }
+              // Location may be RELATIVE ("/download/…"), which most CDNs never
+              // send but some hosts do — resolve it against the URL we asked for.
+              var next = res.headers.location;
+              try { next = new URL(next, u).toString(); }
+              catch (e) { reject(new Error("Server sent a redirect we couldn't follow: " + next)); return; }
+              get(next);
+              return;
             }
-          });
-          res.pipe(file);
-          file.on("finish", function () { file.close(function () { resolve(dest); }); });
-          file.on("error", function (e) { reject(e); });
+            if (res.statusCode !== 200) {
+              res.resume();
+              reject(new Error("Download failed (HTTP " + res.statusCode + ") — " + u));
+              return;
+            }
+            var total = parseInt(res.headers["content-length"], 10) || 0;
+            var got = 0, lastPct = -1;
+            var file = fs.createWriteStream(dest);
+            res.on("data", function (c) {
+              got += c.length;
+              if (onProgress && total) {
+                var pct = Math.floor(got / total * 100);
+                if (pct !== lastPct) { lastPct = pct; onProgress(pct, got, total); }
+              }
+            });
+            res.on("error", function (e) { reject(new Error("Download interrupted: " + e.message)); });
+            res.pipe(file);
+            file.on("finish", function () { file.close(function () { resolve(dest); }); });
+            file.on("error", function (e) { reject(e); });
+          } catch (e) {
+            res.resume();
+            reject(new Error("Download failed: " + (e && e.message ? e.message : e)));
+          }
         });
         req.on("error", function (e) { reject(new Error("Download failed: " + e.message)); });
         req.setTimeout(120000, function () { req.destroy(); reject(new Error("Download timed out.")); });
