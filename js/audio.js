@@ -583,7 +583,10 @@ var QCAudio = (function () {
     function probe(label, exe, args, env) {
       return new Promise(function (resolve) {
         if (!exe) { resolve({ label: label, ok: false, detail: "No path configured." }); return; }
-        var opts = { maxBuffer: 1024 * 1024 * 8, timeout: 60000 };
+        // Generous: the macOS Whisper is a self-extracting Intel bundle and can
+        // take minutes to get going under Rosetta on its first run.
+        var limit = 180000;
+        var opts = { maxBuffer: 1024 * 1024 * 8, timeout: limit };
         if (env) { opts.env = env; }
         runProc(exe, args, opts, function (err, stdout, stderr) {
           var out = ((stdout || "") + "\n" + (stderr || "")).trim();
@@ -594,6 +597,17 @@ var QCAudio = (function () {
           // Any banner at all means it launched — exit code doesn't matter here.
           if (out) {
             resolve({ label: label, ok: true, detail: out.split("\n")[0].slice(0, 140) });
+            return;
+          }
+          // Hitting the time limit PROVES the binary runs — it was still going
+          // when we stopped it. Slow to start is not the same as broken, and
+          // calling it a failure sends people chasing a problem they don't have.
+          if (err && err.killed) {
+            resolve({
+              label: label, ok: true,
+              detail: "Launches, but took longer than " + Math.round(limit / 1000) + "s to answer — normal for the " +
+                "Intel build under Rosetta. Real transcriptions have no time limit; expect a slow first run."
+            });
             return;
           }
           var base = procError(label, exe, err, stderr).message;
